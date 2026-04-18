@@ -40,6 +40,8 @@ interface Tender {
   province: string | null;
   budget: string | null;
   priceReference: string | null;
+  egpStatus: string | null;
+  procurementMethod: string | null;
   tenderType: TenderType;
   status: TenderStatus;
   announceDate: string | null;
@@ -156,13 +158,14 @@ export default function TendersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Budget</TableHead>
-                  <TableHead className="text-right">Price Ref</TableHead>
-                  <TableHead>Announced</TableHead>
-                  <TableHead>Submission</TableHead>
+                  <TableHead>โครงการ</TableHead>
+                  <TableHead>ประเภท</TableHead>
+                  <TableHead>สถานะ</TableHead>
+                  <TableHead>สถานะโครงการ</TableHead>
+                  <TableHead className="text-right">วงเงินงบประมาณ</TableHead>
+                  <TableHead className="text-right">ราคากลาง</TableHead>
+                  <TableHead>วันที่ประกาศ</TableHead>
+                  <TableHead>วันยื่นซอง</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
               </TableHeader>
@@ -170,7 +173,7 @@ export default function TendersPage() {
                 {tenders.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="text-center text-muted-foreground py-8"
                     >
                       No tenders found
@@ -206,6 +209,9 @@ export default function TendersPage() {
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={tender.status} />
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {tender.egpStatus || "—"}
                       </TableCell>
                       <TableCell className="text-sm font-medium text-right whitespace-nowrap">
                         {formatBudget(tender.budget)}

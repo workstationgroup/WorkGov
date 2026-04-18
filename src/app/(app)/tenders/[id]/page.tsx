@@ -54,6 +54,8 @@ interface Tender {
   openingDate: string | null;
   resultDate: string | null;
   contractDate: string | null;
+  egpStatus: string | null;
+  requiredDocuments: { name: string; date: string | null; type: string }[] | null;
   detailUrl: string | null;
   createdAt: string;
 }
@@ -271,6 +273,40 @@ export default function TenderDetailPage() {
             </CardContent>
           </Card>
 
+          {tender.requiredDocuments && tender.requiredDocuments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-heading text-lg">
+                  เอกสารที่เกี่ยวข้อง
+                </CardTitle>
+                <CardDescription>Documents from e-GP</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {tender.requiredDocuments.map((doc, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="text-sm truncate">{doc.name}</span>
+                      </div>
+                      {doc.date && (
+                        <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                          {formatDate(doc.date)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ดาวน์โหลดเอกสารได้ที่หน้า e-GP โดยตรง
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {tender.scopeOfWork && (
             <Card>
               <CardHeader>
@@ -358,18 +394,18 @@ export default function TenderDetailPage() {
                 </>
               )}
               <a
-                href="https://process5.gprocurement.go.th/egp-agpc01-web/announcement"
+                href={tender.detailUrl || "https://process5.gprocurement.go.th/egp-agpc01-web/announcement"}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {
-                  if (!window.confirm("กรุณาเข้าสู่ระบบ e-GP ในอีกหน้าต่างก่อน แล้วจึงกดค้นหาด้วยเลข e-GP ID")) {
+                  if (!window.confirm("กรุณาเข้าสู่ระบบ e-GP ในอีกหน้าต่างก่อน")) {
                     e.preventDefault();
                   }
                 }}
                 className="inline-flex items-center justify-center w-full h-8 gap-1.5 px-2.5 rounded-lg border border-border bg-background hover:bg-muted text-sm font-medium"
               >
                 <ExternalLink className="h-4 w-4" />
-                Search in e-GP
+                Open in e-GP
               </a>
               <Separator className="my-2" />
               {tender.status !== "skipped" ? (

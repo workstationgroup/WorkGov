@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { keywords, tenders, scrapeLog } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { scrapeEgp } from "@/lib/scraper/egp";
+import { scrapeEgp, type RawTender } from "@/lib/scraper/egp";
 import { classifyTender } from "@/lib/ai/classify";
 import { sendLineNotification } from "@/lib/line/notify";
 import type { TenderNotification } from "@/lib/line/notify";
@@ -45,20 +45,7 @@ export async function POST() {
 
     // Deduplicate
     const seen = new Set<string>();
-    const uniqueTenders: Array<{
-      egpId: string;
-      projectName: string;
-      agency: string;
-      subAgency?: string;
-      province?: string;
-      budget?: string;
-      procurementMethod?: string;
-      announceDate?: string;
-      submissionDate?: string;
-      detailUrl?: string;
-      rawData?: Record<string, unknown>;
-      matchedKeyword: string;
-    }> = [];
+    const uniqueTenders: Array<RawTender & { matchedKeyword: string }> = [];
 
     for (const result of scrapeResults) {
       for (const tender of result.tenders) {
@@ -100,6 +87,8 @@ export async function POST() {
           subAgency: tender.subAgency || null,
           province: tender.province || null,
           budget: tender.budget || null,
+          priceReference: tender.priceReference || null,
+          egpStatus: tender.egpStatus || null,
           procurementMethod: tender.procurementMethod || null,
           tenderType: classification.tenderType,
           status: "new",
@@ -113,6 +102,7 @@ export async function POST() {
             ? new Date(tender.submissionDate)
             : null,
           detailUrl: tender.detailUrl || null,
+          requiredDocuments: tender.documents || null,
           rawData: tender.rawData || null,
         })
         .onConflictDoNothing({ target: tenders.egpId })

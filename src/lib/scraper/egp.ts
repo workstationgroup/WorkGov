@@ -5,6 +5,12 @@
 //
 // API discovered from the e-GP Angular SPA (egp-aann09-web module).
 
+export interface TenderDocument {
+  name: string;
+  date: string | null;
+  type: "tor" | "price_build" | "announce";
+}
+
 export interface RawTender {
   egpId: string;
   projectName: string;
@@ -12,10 +18,13 @@ export interface RawTender {
   subAgency?: string;
   province?: string;
   budget?: string;
+  priceReference?: string;
+  egpStatus?: string;
   procurementMethod?: string;
   announceDate?: string;
   submissionDate?: string;
   detailUrl?: string;
+  documents?: TenderDocument[];
   rawData?: Record<string, unknown>;
 }
 
@@ -29,6 +38,7 @@ const EGP_BASE = "https://process5.gprocurement.go.th";
 const KEYCLOAK_URL =
   "https://login-process5.gprocurement.go.th/auth/realms/egpms/protocol/openid-connect/token";
 const SEARCH_URL = `${EGP_BASE}/egp-atpj27-service/pb/a-egp-allt-project/announcement`;
+const EGP_API_KEY = "Liaqv30xLpFGOlJPW1N0hPKJkbO7vWUS";
 
 const METHOD_MAP: Record<string, string> = {
   "15": "ประกวดราคา",
@@ -89,6 +99,96 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
+// Generate encrypted detail URL for a project
+async function getDetailUrl(
+  token: string,
+  projectId: string
+): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `${SEARCH_URL}/encryptApiKey?passKey=${EGP_API_KEY}&sDataValue=${projectId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!res.ok) return undefined;
+    const json = await res.json();
+    if (json.data) {
+      const encrypted = encodeURIComponent(json.data);
+      return `${EGP_BASE}/egp-agpc01-web/announcement/procurement/${encrypted}`;
+    }
+  } catch {
+    // Non-critical — fall back to no URL
+  }
+  return undefined;
+}
+
+// Fetch procurement detail for a project (for document queries)
+async function getProcurementDetail(
+  token: string,
+  projectId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(
+      `${SEARCH_URL}/getProcurementDetail?projectId=${projectId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data || null;
+  } catch {
+    return null;
+  }
+}
+
+// Fetch TOR document list for a project
+async function getTorDocuments(
+  token: string,
+  projectId: string,
+  detail: Record<string, unknown>
+): Promise<TenderDocument[]> {
+  try {
+    const params = new URLSearchParams({
+      projectId,
+      methodId: String(detail.methodId || ""),
+      projectVersion: String(detail.projectVersion || ""),
+      typeProject: String(detail.typeProject || ""),
+      stepId: String(detail.stepId || ""),
+      typeId: String(detail.typeId || ""),
+    });
+
+    const res = await fetch(
+      `${SEARCH_URL}/getTorZipList?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+
+    return (json.data || []).map(
+      (doc: Record<string, unknown>) => ({
+        name: String(doc.buildName || ""),
+        date: doc.webDate ? String(doc.webDate) : null,
+        type: "tor" as const,
+      })
+    );
+  } catch {
+    return [];
+  }
+}
+
 // Search tenders by keyword using the announcement API
 async function searchTenders(
   token: string,
@@ -125,27 +225,48 @@ async function searchTenders(
 
     const items = json.data?.data || [];
 
-    return items.map(
-      (item: Record<string, unknown>) => ({
-        egpId: String(item.projectId || ""),
+    // Process each item: get detail URL and documents
+    const tenders: RawTender[] = [];
+
+    for (const item of items as Record<string, unknown>[]) {
+      const projectId = String(item.projectId || "");
+      if (!projectId) continue;
+
+      // Get encrypted detail URL
+      const detailUrl = await getDetailUrl(token, projectId);
+
+      // Get documents (TOR list)
+      let documents: TenderDocument[] = [];
+      const detail = await getProcurementDetail(token, projectId);
+      if (detail) {
+        documents = await getTorDocuments(token, projectId, detail);
+      }
+
+      tenders.push({
+        egpId: projectId,
         projectName: String(item.projectName || ""),
         agency: String(item.deptSubName || item.announceSubDesc || ""),
         province: item.rdbProvinceMoiName
           ? String(item.rdbProvinceMoiName)
           : undefined,
         budget: item.projectMoney ? String(item.projectMoney) : undefined,
+        priceReference: item.priceBuild
+          ? String(item.priceBuild)
+          : undefined,
+        egpStatus: item.flowName ? String(item.flowName) : undefined,
         procurementMethod: item.methodId
           ? mapMethodId(String(item.methodId))
           : undefined,
         announceDate: item.announceDate
           ? String(item.announceDate)
           : undefined,
-        detailUrl: item.projectId
-          ? `${EGP_BASE}/egp-agpc01-web/announcement#targetproc=detail&projectId=${item.projectId}`
-          : undefined,
+        detailUrl,
+        documents: documents.length > 0 ? documents : undefined,
         rawData: item as Record<string, unknown>,
-      })
-    );
+      });
+    }
+
+    return tenders;
   } catch (err) {
     console.error(`[Scraper] Search error for "${keyword}":`, err);
     return [];

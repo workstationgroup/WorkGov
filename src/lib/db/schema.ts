@@ -24,6 +24,7 @@ export const tenders = pgTable("tenders", {
     .notNull()
     .default("type_a"),
   status: varchar("status", { length: 20 }).notNull().default("new"),
+  egpStatus: varchar("egp_status", { length: 100 }),
   aiSummary: text("ai_summary"),
   aiClassificationReason: text("ai_classification_reason"),
   scopeOfWork: text("scope_of_work"),

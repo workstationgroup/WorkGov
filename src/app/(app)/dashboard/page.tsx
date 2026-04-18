@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import {
   FileText,
   AlertTriangle,
@@ -204,11 +205,15 @@ export default function DashboardPage() {
                 </div>
               ) : data && data.recentTenders.length > 0 ? (
                 data.recentTenders.map((tender) => (
-                  <div
+                  <Link
                     key={tender.id}
-                    className="flex items-start justify-between gap-4 rounded-lg border p-4"
+                    href={`/tenders/${tender.egpId}`}
+                    className="flex items-start justify-between gap-4 rounded-lg border p-4 hover:bg-muted/50 transition-colors"
                   >
                     <div className="space-y-1 min-w-0">
+                      <p className="text-xs font-mono font-bold text-accent">
+                        {tender.egpId}
+                      </p>
                       <p className="text-sm font-medium leading-snug truncate">
                         {tender.projectName}
                       </p>
@@ -248,7 +253,7 @@ export default function DashboardPage() {
                           : "—"}
                       </p>
                     </div>
-                  </div>
+                  </Link>
                 ))
               ) : (
                 <p className="text-center text-sm text-muted-foreground py-8">
