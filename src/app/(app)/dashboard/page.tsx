@@ -212,6 +212,7 @@ export default function DashboardPage() {
                   >
                     <div className="space-y-1 min-w-0">
                       <p className="text-xs font-mono font-bold text-accent">
+                        <span className="text-muted-foreground font-sans font-normal">e-GP:</span>{" "}
                         {tender.egpId}
                       </p>
                       <p className="text-sm font-medium leading-snug truncate">
