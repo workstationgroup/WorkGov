@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
   FileText,
   Settings,
   Building2,
-  Bell,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,8 +18,25 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  } | null;
+}
+
+export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname();
+
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "?";
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col shrink-0">
@@ -62,15 +80,32 @@ export function AppSidebar() {
 
       <div className="p-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3 px-3">
-          <div className="h-8 w-8 rounded-full bg-sidebar-accent flex items-center justify-center">
-            <Bell className="h-4 w-4 text-sidebar-accent-foreground" />
-          </div>
-          <div className="text-xs">
-            <p className="font-medium text-sidebar-foreground/90">
-              Next check
+          {user?.image ? (
+            <img
+              src={user.image}
+              alt=""
+              className="h-8 w-8 rounded-full"
+            />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-semibold text-sidebar-accent-foreground">
+              {initials}
+            </div>
+          )}
+          <div className="flex-1 min-w-0 text-xs">
+            <p className="font-medium text-sidebar-foreground/90 truncate">
+              {user?.name || "User"}
             </p>
-            <p className="text-sidebar-foreground/50">13:00 today</p>
+            <p className="text-sidebar-foreground/50 truncate">
+              {user?.email || ""}
+            </p>
           </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="p-1.5 rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </aside>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Lexend, Source_Sans_3 } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SessionProvider } from "next-auth/react";
 import "./globals.css";
 
 const lexend = Lexend({
@@ -32,7 +33,9 @@ export default function RootLayout({
       className={`${lexend.variable} ${sourceSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex">
-        <TooltipProvider>{children}</TooltipProvider>
+        <SessionProvider>
+          <TooltipProvider>{children}</TooltipProvider>
+        </SessionProvider>
       </body>
     </html>
   );

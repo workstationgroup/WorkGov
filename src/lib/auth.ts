@@ -1,0 +1,36 @@
+import NextAuth from "next-auth";
+import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
+
+const ALLOWED_DOMAIN = "workstationoffice.com";
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  providers: [
+    MicrosoftEntraID({
+      clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
+      clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
+      // issuer falls back to AUTH_MICROSOFT_ENTRA_ID_ISSUER env var
+      // Set it to: https://login.microsoftonline.com/<tenant-id>/v2.0
+    }),
+  ],
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
+  callbacks: {
+    signIn({ profile }) {
+      // Only allow @workstationoffice.com emails
+      const email =
+        (profile as Record<string, unknown>)?.email ||
+        (profile as Record<string, unknown>)?.preferred_username ||
+        "";
+      if (typeof email === "string" && email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+        return true;
+      }
+      return false;
+    },
+    session({ session, token }) {
+      if (token.sub) session.user.id = token.sub;
+      return session;
+    },
+  },
+});

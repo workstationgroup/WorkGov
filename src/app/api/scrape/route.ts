@@ -115,7 +115,10 @@ export async function POST() {
           detailUrl: tender.detailUrl || null,
           rawData: tender.rawData || null,
         })
+        .onConflictDoNothing({ target: tenders.egpId })
         .returning();
+
+      if (!inserted) continue; // Already exists from concurrent scrape
 
       notifyList.push({
         projectName: inserted.projectName,
