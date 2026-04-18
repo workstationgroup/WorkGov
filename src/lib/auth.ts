@@ -6,10 +6,9 @@ const ALLOWED_DOMAIN = "workstationoffice.com";
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     MicrosoftEntraID({
-      clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
-      clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
-      // issuer falls back to AUTH_MICROSOFT_ENTRA_ID_ISSUER env var
-      // Set it to: https://login.microsoftonline.com/<tenant-id>/v2.0
+      clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID?.trim(),
+      clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET?.trim(),
+      issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER?.trim(),
     }),
   ],
   pages: {
