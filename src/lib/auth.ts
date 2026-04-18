@@ -17,6 +17,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     error: "/login",
   },
   callbacks: {
+    authorized({ auth, request }) {
+      const { pathname } = request.nextUrl;
+      const publicPaths = [
+        "/login",
+        "/api/auth",
+        "/api/cron",
+        "/api/scrape",
+        "/api/line-webhook",
+      ];
+      if (publicPaths.some((p) => pathname.startsWith(p))) return true;
+      return !!auth;
+    },
     signIn({ profile }) {
       // Only allow @workstationoffice.com emails
       const email =
