@@ -37,11 +37,31 @@ interface Tender {
   egpId: string;
   projectName: string;
   agency: string | null;
+  province: string | null;
   budget: string | null;
+  priceReference: string | null;
   tenderType: TenderType;
   status: TenderStatus;
+  announceDate: string | null;
   submissionDate: string | null;
   matchedKeyword: string | null;
+}
+
+function formatDate(dateStr: string | null) {
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatBudget(value: string | null) {
+  if (!value) return "—";
+  const num = Number(value);
+  if (num >= 1_000_000) return `฿${(num / 1_000_000).toFixed(2)}M`;
+  if (num >= 1_000) return `฿${(num / 1_000).toFixed(0)}K`;
+  return `฿${num.toLocaleString()}`;
 }
 
 export default function TendersPage() {
@@ -136,10 +156,12 @@ export default function TendersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[400px]">Project</TableHead>
+                  <TableHead>Project</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Budget</TableHead>
+                  <TableHead className="text-right">Budget</TableHead>
+                  <TableHead className="text-right">Price Ref</TableHead>
+                  <TableHead>Announced</TableHead>
                   <TableHead>Submission</TableHead>
                   <TableHead className="w-[50px]" />
                 </TableRow>
@@ -148,7 +170,7 @@ export default function TendersPage() {
                 {tenders.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={8}
                       className="text-center text-muted-foreground py-8"
                     >
                       No tenders found
@@ -161,12 +183,13 @@ export default function TendersPage() {
                         <div>
                           <Link
                             href={`/tenders/${tender.id}`}
-                            className="text-sm font-medium hover:underline leading-snug"
+                            className="text-sm font-medium hover:underline leading-snug line-clamp-2"
                           >
                             {tender.projectName}
                           </Link>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {tender.agency || "—"}
+                            {tender.province ? ` · ${tender.province}` : ""}
                           </p>
                           {tender.matchedKeyword && (
                             <Badge
@@ -184,17 +207,17 @@ export default function TendersPage() {
                       <TableCell>
                         <StatusBadge status={tender.status} />
                       </TableCell>
-                      <TableCell className="text-sm font-medium">
-                        {tender.budget
-                          ? `฿${Number(tender.budget).toLocaleString()}`
-                          : "—"}
+                      <TableCell className="text-sm font-medium text-right whitespace-nowrap">
+                        {formatBudget(tender.budget)}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {tender.submissionDate
-                          ? new Date(tender.submissionDate).toLocaleDateString(
-                              "th-TH"
-                            )
-                          : "—"}
+                      <TableCell className="text-sm text-muted-foreground text-right whitespace-nowrap">
+                        {formatBudget(tender.priceReference)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {formatDate(tender.announceDate)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                        {formatDate(tender.submissionDate)}
                       </TableCell>
                       <TableCell>
                         <Link
