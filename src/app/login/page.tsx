@@ -7,7 +7,12 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ callbackUrl?: string; error?: string }>;
 }) {
-  const session = await auth();
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth config error — show login page instead of looping
+  }
   if (session) redirect("/dashboard");
 
   const params = await searchParams;
