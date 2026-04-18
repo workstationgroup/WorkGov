@@ -357,6 +357,15 @@ export default function TenderDetailPage() {
                   </Button>
                 </>
               )}
+              <a
+                href="https://process5.gprocurement.go.th/egp-agpc01-web/announcement"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center w-full h-8 gap-1.5 px-2.5 rounded-lg border border-border bg-background hover:bg-muted text-sm font-medium"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Search in e-GP
+              </a>
               <Separator className="my-2" />
               {tender.status !== "skipped" ? (
                 <Button
