@@ -150,7 +150,10 @@ export async function GET(request: Request) {
           detailUrl: tender.detailUrl || null,
           rawData: tender.rawData || null,
         })
+        .onConflictDoNothing({ target: tenders.egpId })
         .returning();
+
+      if (!inserted) continue;
 
       notifyList.push({
         projectName: inserted.projectName,
@@ -161,7 +164,7 @@ export async function GET(request: Request) {
         submissionDate: inserted.submissionDate
           ? inserted.submissionDate.toLocaleDateString("th-TH")
           : null,
-        detailUrl: inserted.detailUrl,
+        detailUrl: `https://workgov.workstationoffice.com/tenders/${inserted.id}`,
       });
     }
 

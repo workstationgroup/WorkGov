@@ -5,6 +5,7 @@ const publicPaths = [
   "/login",
   "/api/auth",
   "/api/cron",
+  "/api/scrape",
   "/api/line-webhook",
 ];
 

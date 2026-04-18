@@ -67,6 +67,7 @@ export async function sendLineNotification(tenders: TenderNotification[]) {
         `   ${t.agency}`,
         `   ${budget}${deadline ? ` | ${deadline}` : ""}`,
         t.aiSummary ? `   📝 ${t.aiSummary.slice(0, 60)}` : "",
+        t.detailUrl ? `   🔗 ${t.detailUrl}` : "",
       ]
         .filter(Boolean)
         .join("\n");
@@ -76,7 +77,7 @@ export async function sendLineNotification(tenders: TenderNotification[]) {
   const overflow =
     tenders.length > 5 ? `\n\n...และอีก ${tenders.length - 5} รายการ` : "";
 
-  const footer = "\n\n🔗 ดูทั้งหมดที่ WorkGov Dashboard";
+  const footer = "\n\n🔗 ดูทั้งหมดที่ https://workgov.workstationoffice.com/tenders";
 
   const message = [header, summary, "", details, overflow, footer].join("\n");
 
