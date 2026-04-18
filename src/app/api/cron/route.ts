@@ -164,7 +164,7 @@ export async function GET(request: Request) {
         submissionDate: inserted.submissionDate
           ? inserted.submissionDate.toLocaleDateString("th-TH")
           : null,
-        detailUrl: `https://workgov.workstationoffice.com/tenders/${inserted.id}`,
+        detailUrl: `https://workgov.workstationoffice.com/tenders/${inserted.egpId}`,
       });
     }
 

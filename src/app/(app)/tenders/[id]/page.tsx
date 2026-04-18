@@ -161,8 +161,8 @@ export default function TenderDetailPage() {
           <h1 className="font-heading text-2xl font-bold tracking-tight">
             Tender Detail
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            e-GP ID: {tender.egpId}
+          <p className="text-lg font-mono font-bold text-accent mt-0.5">
+            {tender.egpId}
           </p>
         </div>
       </div>

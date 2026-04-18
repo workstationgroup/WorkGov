@@ -182,7 +182,7 @@ export default function TendersPage() {
                       <TableCell>
                         <div>
                           <Link
-                            href={`/tenders/${tender.id}`}
+                            href={`/tenders/${tender.egpId}`}
                             className="text-sm font-medium hover:underline leading-snug line-clamp-2"
                           >
                             {tender.projectName}
@@ -221,7 +221,7 @@ export default function TendersPage() {
                       </TableCell>
                       <TableCell>
                         <Link
-                          href={`/tenders/${tender.id}`}
+                          href={`/tenders/${tender.egpId}`}
                           className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted"
                         >
                           <ExternalLink className="h-4 w-4" />
