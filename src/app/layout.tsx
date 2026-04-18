@@ -32,7 +32,7 @@ export default function RootLayout({
       lang="th"
       className={`${lexend.variable} ${sourceSans.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex">
+      <body className="h-full">
         <SessionProvider>
           <TooltipProvider>{children}</TooltipProvider>
         </SessionProvider>
