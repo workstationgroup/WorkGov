@@ -30,6 +30,19 @@ const KEYCLOAK_URL =
   "https://login-process5.gprocurement.go.th/auth/realms/egpms/protocol/openid-connect/token";
 const SEARCH_URL = `${EGP_BASE}/egp-atpj27-service/pb/a-egp-allt-project/announcement`;
 
+const METHOD_MAP: Record<string, string> = {
+  "15": "ประกวดราคา",
+  "16": "e-bidding",
+  "17": "คัดเลือก",
+  "19": "เฉพาะเจาะจง",
+  "20": "จ้างที่ปรึกษา",
+  "21": "จ้างออกแบบ",
+};
+
+function mapMethodId(id: string): string {
+  return METHOD_MAP[id] || id;
+}
+
 // Get current Thai Buddhist year (e.g. 2569 for 2026 CE)
 function getCurrentBudgetYear(): string {
   const now = new Date();
@@ -122,7 +135,7 @@ async function searchTenders(
           : undefined,
         budget: item.projectMoney ? String(item.projectMoney) : undefined,
         procurementMethod: item.methodId
-          ? String(item.methodId)
+          ? mapMethodId(String(item.methodId))
           : undefined,
         announceDate: item.announceDate
           ? String(item.announceDate)

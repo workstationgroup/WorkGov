@@ -58,6 +58,20 @@ interface Tender {
   createdAt: string;
 }
 
+const METHOD_MAP: Record<string, string> = {
+  "15": "ประกวดราคา",
+  "16": "e-bidding",
+  "17": "คัดเลือก",
+  "19": "เฉพาะเจาะจง",
+  "20": "จ้างที่ปรึกษา",
+  "21": "จ้างออกแบบ",
+};
+
+function formatMethod(value: string | null) {
+  if (!value) return "—";
+  return METHOD_MAP[value] || value;
+}
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleDateString("th-TH", {
@@ -222,7 +236,7 @@ export default function TenderDetailPage() {
                   <div>
                     <p className="text-sm font-medium">Procurement Method</p>
                     <p className="text-sm text-muted-foreground">
-                      {tender.procurementMethod || "—"}
+                      {formatMethod(tender.procurementMethod)}
                     </p>
                   </div>
                 </div>
