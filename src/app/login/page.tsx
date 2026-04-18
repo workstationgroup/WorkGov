@@ -1,6 +1,6 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { Building2 } from "lucide-react";
+import Image from "next/image";
 
 export default async function LoginPage({
   searchParams,
@@ -22,10 +22,15 @@ export default async function LoginPage({
     <div className="flex min-h-screen w-full items-center justify-center bg-background">
       <div className="w-full max-w-sm space-y-8 px-4">
         {/* Logo */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-14 w-14 rounded-xl bg-primary flex items-center justify-center">
-            <Building2 className="h-8 w-8 text-primary-foreground" />
-          </div>
+        <div className="flex flex-col items-center gap-4">
+          <Image
+            src="/logo-workstation.jpg"
+            alt="Work Station"
+            width={120}
+            height={120}
+            className="rounded-2xl"
+            priority
+          />
           <div className="text-center">
             <h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
               WorkGov
