@@ -1,11 +1,9 @@
 // e-GP Scraper — searches process5.gprocurement.go.th for tenders
 //
-// The e-GP site is an SPA that requires login. On Vercel serverless,
-// we can't run a full Playwright browser. This module uses the underlying
-// REST API that the SPA calls internally.
+// Uses Keycloak OIDC direct-access grant to authenticate,
+// then queries the announcement search API with the Bearer token.
 //
-// Discovery: The SPA at process5.gprocurement.go.th makes XHR calls to
-// its backend API. We replicate those calls directly.
+// API discovered from the e-GP Angular SPA (egp-aann09-web module).
 
 export interface RawTender {
   egpId: string;
@@ -28,9 +26,22 @@ export interface ScrapeResult {
 }
 
 const EGP_BASE = "https://process5.gprocurement.go.th";
+const KEYCLOAK_URL =
+  "https://login-process5.gprocurement.go.th/auth/realms/egpms/protocol/openid-connect/token";
+const SEARCH_URL = `${EGP_BASE}/egp-atpj27-service/pb/a-egp-allt-project/announcement`;
 
-// Login and get session token
-async function getSession(): Promise<string | null> {
+// Get current Thai Buddhist year (e.g. 2569 for 2026 CE)
+function getCurrentBudgetYear(): string {
+  const now = new Date();
+  const month = now.getMonth(); // 0-indexed
+  const ceYear = now.getFullYear();
+  // Thai fiscal year starts October: Oct-Dec = next year's budget
+  const beYear = month >= 9 ? ceYear + 544 : ceYear + 543;
+  return beYear.toString();
+}
+
+// Login via Keycloak direct-access grant (Resource Owner Password Credentials)
+async function getAccessToken(): Promise<string | null> {
   const username = process.env.EGP_USERNAME;
   const password = process.env.EGP_PASSWORD;
 
@@ -40,76 +51,88 @@ async function getSession(): Promise<string | null> {
   }
 
   try {
-    // The e-GP SPA uses a login API endpoint
-    const res = await fetch(`${EGP_BASE}/egp-agpc01-api/security/login`, {
+    const res = await fetch(KEYCLOAK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "password",
+        client_id: "egp-login-keycloak-web",
+        username,
+        password,
+      }).toString(),
     });
 
     if (!res.ok) {
-      console.error("[Scraper] Login failed:", res.status);
+      const err = await res.text();
+      console.error("[Scraper] Keycloak login failed:", res.status, err);
       return null;
     }
 
     const data = await res.json();
-    // The session token is typically in the response body or a cookie
-    return data.token || data.access_token || null;
+    return data.access_token || null;
   } catch (err) {
     console.error("[Scraper] Login error:", err);
     return null;
   }
 }
 
-// Search tenders by keyword
+// Search tenders by keyword using the announcement API
 async function searchTenders(
   token: string,
   keyword: string
 ): Promise<RawTender[]> {
   try {
-    const res = await fetch(
-      `${EGP_BASE}/egp-agpc01-api/announcement/search`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          keyword,
-          page: 1,
-          pageSize: 50,
-        }),
-      }
-    );
+    const params = new URLSearchParams({
+      budgetYear: getCurrentBudgetYear(),
+      keywordSearch: keyword,
+      announcementTodayFlag: "false",
+      page: "1",
+    });
+
+    const res = await fetch(`${SEARCH_URL}?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
     if (!res.ok) {
       console.error(`[Scraper] Search failed for "${keyword}":`, res.status);
       return [];
     }
 
-    const data = await res.json();
-    const items = data.data || data.items || data.content || [];
+    const json = await res.json();
 
-    return items.map((item: Record<string, unknown>) => ({
-      egpId: String(item.announcementId || item.id || ""),
-      projectName: String(item.projectName || item.name || ""),
-      agency: String(item.deptName || item.agency || ""),
-      subAgency: item.subDeptName ? String(item.subDeptName) : undefined,
-      province: item.province ? String(item.province) : undefined,
-      budget: item.budget ? String(item.budget) : undefined,
-      procurementMethod: item.procurementMethod
-        ? String(item.procurementMethod)
-        : undefined,
-      announceDate: item.announceDate ? String(item.announceDate) : undefined,
-      submissionDate: item.submissionDate
-        ? String(item.submissionDate)
-        : undefined,
-      detailUrl: item.announcementId
-        ? `${EGP_BASE}/egp-agpc01-web/announcement#targetproc=detail&id=${item.announcementId}`
-        : undefined,
-      rawData: item as Record<string, unknown>,
-    }));
+    // Check Cloudflare validation
+    if (json.validateCfTurnTile === false) {
+      console.error(`[Scraper] Cloudflare blocked for "${keyword}"`);
+      return [];
+    }
+
+    const items = json.data?.data || [];
+
+    return items.map(
+      (item: Record<string, unknown>) => ({
+        egpId: String(item.projectId || ""),
+        projectName: String(item.projectName || ""),
+        agency: String(item.deptSubName || item.announceSubDesc || ""),
+        province: item.rdbProvinceMoiName
+          ? String(item.rdbProvinceMoiName)
+          : undefined,
+        budget: item.projectMoney ? String(item.projectMoney) : undefined,
+        procurementMethod: item.methodId
+          ? String(item.methodId)
+          : undefined,
+        announceDate: item.announceDate
+          ? String(item.announceDate)
+          : undefined,
+        detailUrl: item.projectId
+          ? `${EGP_BASE}/egp-agpc01-web/announcement#targetproc=detail&projectId=${item.projectId}`
+          : undefined,
+        rawData: item as Record<string, unknown>,
+      })
+    );
   } catch (err) {
     console.error(`[Scraper] Search error for "${keyword}":`, err);
     return [];
@@ -120,7 +143,7 @@ async function searchTenders(
 export async function scrapeEgp(
   enabledKeywords: { keyword: string; type: string }[]
 ): Promise<ScrapeResult[]> {
-  const token = await getSession();
+  const token = await getAccessToken();
 
   if (!token) {
     return enabledKeywords.map((kw) => ({
