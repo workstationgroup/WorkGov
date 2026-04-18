@@ -279,36 +279,22 @@ export default function TenderDetailPage() {
                 Timeline
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="relative space-y-6">
-                {timelineSteps.map((step, i) => (
-                  <div key={step.label} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`h-3 w-3 rounded-full border-2 ${
-                          step.done
-                            ? "bg-accent border-accent"
-                            : "bg-background border-muted-foreground/30"
-                        }`}
-                      />
-                      {i < timelineSteps.length - 1 && (
-                        <div className="w-px flex-1 bg-border mt-1" />
-                      )}
-                    </div>
-                    <div className="pb-4">
-                      <p className="text-sm font-medium leading-none">
-                        {step.label}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {step.sublabel}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {step.date}
-                      </p>
-                    </div>
+            <CardContent className="space-y-1.5">
+              {timelineSteps.map((step) => (
+                <div key={step.label} className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`h-2 w-2 rounded-full ${
+                        step.done
+                          ? "bg-accent"
+                          : "bg-muted-foreground/30"
+                      }`}
+                    />
+                    <span className="text-xs font-medium">{step.label}</span>
                   </div>
-                ))}
-              </div>
+                  <span className="text-xs text-muted-foreground">{step.date}</span>
+                </div>
+              ))}
             </CardContent>
           </Card>
 
