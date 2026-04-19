@@ -67,7 +67,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         "/login",
         "/api/auth",
         "/api/cron",
-        "/api/scrape",
         "/api/line-webhook",
         "/t/",
       ];
