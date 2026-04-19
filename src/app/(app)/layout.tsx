@@ -9,10 +9,10 @@ export default async function AppLayout({
   const session = await auth();
 
   return (
-    <div className="flex min-h-full w-full">
+    <div className="min-h-full w-full">
       <AppSidebar user={session?.user} />
-      <main className="flex-1 overflow-auto">
-        <div className="p-6 max-w-7xl mx-auto">{children}</div>
+      <main className="overflow-auto">
+        <div className="p-6 pt-16 md:pt-6 pb-20 md:pb-6 max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
   );
