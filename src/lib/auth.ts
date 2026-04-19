@@ -3,15 +3,33 @@ import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import Passkey from "next-auth/providers/passkey";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { getDb } from "@/lib/db";
+import { eq } from "drizzle-orm";
 import {
   users,
   accounts,
   sessions,
   verificationTokens,
   authenticators,
+  settings,
 } from "@/lib/db/schema";
 
 const ALLOWED_DOMAIN = "workstationoffice.com";
+
+async function checkIsAdmin(userId: string): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, "admin_user_id"));
+
+  if (!row) {
+    // First user ever — make them admin
+    await db.insert(settings).values({ key: "admin_user_id", value: userId });
+    return true;
+  }
+
+  return row.value === userId;
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.AUTH_SECRET?.trim(),
@@ -57,9 +75,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return !!auth;
     },
     signIn({ profile, account }) {
-      // Passkey sign-in: user already exists in DB, allow
       if (account?.provider === "passkey") return true;
-      // Microsoft: only allow @workstationoffice.com emails
       const email =
         (profile as Record<string, unknown>)?.email ||
         (profile as Record<string, unknown>)?.preferred_username ||
@@ -69,14 +85,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return false;
     },
-    jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.sub = user.id;
+      }
+      // Check admin on sign-in only (not every request)
+      if ((trigger === "signIn" || trigger === "signUp") && token.sub) {
+        token.isAdmin = await checkIsAdmin(token.sub);
       }
       return token;
     },
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
+      if (token.isAdmin) session.user.isAdmin = token.isAdmin as boolean;
       return session;
     },
   },
