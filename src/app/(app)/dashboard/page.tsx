@@ -20,7 +20,10 @@ import {
   Bell,
   Play,
   Loader2,
+  Fingerprint,
+  X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 interface DashboardData {
   stats: {
@@ -51,10 +54,12 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [scraping, setScraping] = useState(false);
   const [scrapeMessage, setScrapeMessage] = useState<string | null>(null);
+  const [showPasskeyBanner, setShowPasskeyBanner] = useState(false);
 
   const fetchDashboard = useCallback(async () => {
     const res = await fetch("/api/dashboard");
@@ -65,7 +70,28 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDashboard();
-  }, [fetchDashboard]);
+
+    // Check passkey setup status
+    (async () => {
+      try {
+        const res = await fetch("/api/passkeys");
+        if (!res.ok) return;
+        const passkeys = await res.json();
+        const setupComplete = localStorage.getItem("passkey_setup_complete");
+        const bannerDismissed = localStorage.getItem("passkey_banner_dismissed");
+
+        if (passkeys.length === 0 && !setupComplete) {
+          // First time — redirect to setup page
+          router.replace("/setup-passkey");
+        } else if (passkeys.length === 0 && setupComplete && !bannerDismissed) {
+          // Skipped before — show banner
+          setShowPasskeyBanner(true);
+        }
+      } catch {
+        // Ignore — passkey check is non-critical
+      }
+    })();
+  }, [fetchDashboard, router]);
 
   async function handleManualScrape() {
     setScraping(true);
@@ -165,6 +191,27 @@ export default function DashboardPage() {
       {scrapeMessage && (
         <div className="rounded-lg border bg-muted/50 px-4 py-3 text-sm">
           {scrapeMessage}
+        </div>
+      )}
+
+      {showPasskeyBanner && (
+        <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+          <Fingerprint className="h-5 w-5 text-primary shrink-0" />
+          <p className="text-sm flex-1">
+            Sign in faster with Face ID or Touch ID.{" "}
+            <Link href="/settings" className="font-medium text-primary underline underline-offset-2">
+              Set up Passkey
+            </Link>
+          </p>
+          <button
+            onClick={() => {
+              localStorage.setItem("passkey_banner_dismissed", "1");
+              setShowPasskeyBanner(false);
+            }}
+            className="p-1 rounded hover:bg-muted"
+          >
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
         </div>
       )}
 
