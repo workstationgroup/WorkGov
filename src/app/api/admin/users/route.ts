@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { users, authenticators } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { logChange } from "@/lib/changelog";
 
 async function requireAdmin() {
   const session = await auth();
@@ -63,8 +64,11 @@ export async function DELETE(request: Request) {
 
   const db = getDb();
 
+  // Find user name for changelog
+  const [targetUser] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
+  const targetName = targetUser?.name || targetUser?.email || userId;
+
   if (credentialID) {
-    // Delete specific passkey
     await db
       .delete(authenticators)
       .where(
@@ -73,11 +77,12 @@ export async function DELETE(request: Request) {
           eq(authenticators.credentialID, credentialID)
         )
       );
+    await logChange("admin", "remove", `Removed passkey for ${targetName}`);
   } else {
-    // Delete all passkeys for user
     await db
       .delete(authenticators)
       .where(eq(authenticators.userId, userId));
+    await logChange("admin", "remove", `Removed all passkeys for ${targetName}`);
   }
 
   return NextResponse.json({ ok: true });

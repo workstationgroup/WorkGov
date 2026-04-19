@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { keywords } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logChange } from "@/lib/changelog";
 
 export async function GET() {
   const db = getDb();
@@ -21,9 +22,9 @@ export async function POST(request: Request) {
     );
   }
 
-  if (type !== "type_a" && type !== "type_b") {
+  if (type !== "type_a" && type !== "type_b" && type !== "negative") {
     return NextResponse.json(
-      { error: "Type must be type_a or type_b" },
+      { error: "Type must be type_a, type_b, or negative" },
       { status: 400 }
     );
   }
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
     .values({ keyword: keyword.trim(), type, enabled: true })
     .returning();
 
+  await logChange("keyword", "add", `Added keyword "${keyword.trim()}" (${type})`);
   return NextResponse.json(row, { status: 201 });
 }
 
@@ -51,6 +53,7 @@ export async function PATCH(request: Request) {
     .where(eq(keywords.id, id))
     .returning();
 
+  await logChange("keyword", "toggle", `${enabled ? "Enabled" : "Disabled"} keyword "${row.keyword}"`);
   return NextResponse.json(row);
 }
 
@@ -63,6 +66,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  await db.delete(keywords).where(eq(keywords.id, id));
+  const [deleted] = await db.delete(keywords).where(eq(keywords.id, id)).returning();
+  if (deleted) await logChange("keyword", "remove", `Removed keyword "${deleted.keyword}"`);
   return NextResponse.json({ ok: true });
 }

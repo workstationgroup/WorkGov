@@ -46,6 +46,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID?.trim(),
       clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET?.trim(),
       issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER?.trim(),
+      allowDangerousEmailAccountLinking: true,
     }),
     Passkey({
       relayingParty: {

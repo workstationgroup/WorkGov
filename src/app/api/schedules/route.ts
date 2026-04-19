@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { schedules } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logChange } from "@/lib/changelog";
 
 export async function GET() {
   const db = getDb();
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
     .values({ time, enabled: enabled ?? true })
     .returning();
 
+  await logChange("schedule", "add", `Added schedule ${time}`);
   return NextResponse.json(row, { status: 201 });
 }
 
@@ -41,6 +43,7 @@ export async function PATCH(request: Request) {
     .where(eq(schedules.id, id))
     .returning();
 
+  await logChange("schedule", "toggle", `${enabled ? "Enabled" : "Disabled"} schedule ${row.time}`);
   return NextResponse.json(row);
 }
 
@@ -53,6 +56,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  await db.delete(schedules).where(eq(schedules.id, id));
+  const [deleted] = await db.delete(schedules).where(eq(schedules.id, id)).returning();
+  if (deleted) await logChange("schedule", "remove", `Removed schedule ${deleted.time}`);
   return NextResponse.json({ ok: true });
 }

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { authenticators } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { logChange } from "@/lib/changelog";
 
 export async function GET() {
   const session = await auth();
@@ -45,5 +46,6 @@ export async function DELETE(request: Request) {
       )
     );
 
+  await logChange("passkey", "remove", "Removed own passkey");
   return NextResponse.json({ ok: true });
 }

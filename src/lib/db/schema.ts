@@ -154,6 +154,16 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const settingsChangelog = pgTable("settings_changelog", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").references(() => users.id),
+  userName: text("user_name"),
+  action: varchar("action", { length: 50 }).notNull(), // add, remove, update, toggle
+  category: varchar("category", { length: 50 }).notNull(), // schedule, keyword, line, passkey, admin
+  detail: text("detail").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const scrapeLog = pgTable("scrape_log", {
   id: serial("id").primaryKey(),
   startedAt: timestamp("started_at").notNull().defaultNow(),

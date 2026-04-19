@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { tenders } from "@/lib/db/schema";
-import { desc, eq, ilike, or, and, sql } from "drizzle-orm";
+import { tenders, keywords } from "@/lib/db/schema";
+import { desc, eq, ilike, or, and, not } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const db = getDb();
@@ -10,6 +10,14 @@ export async function GET(request: Request) {
   const search = searchParams.get("search") || "";
   const type = searchParams.get("type") || "all";
   const status = searchParams.get("status") || "all";
+
+  // Load negative keywords
+  const negativeKeywords = (
+    await db
+      .select({ keyword: keywords.keyword })
+      .from(keywords)
+      .where(and(eq(keywords.type, "negative"), eq(keywords.enabled, true)))
+  ).map((k) => k.keyword.toLowerCase());
 
   const conditions = [];
 
@@ -28,6 +36,11 @@ export async function GET(request: Request) {
 
   if (status !== "all") {
     conditions.push(eq(tenders.status, status));
+  }
+
+  // Exclude tenders matching negative keywords
+  for (const neg of negativeKeywords) {
+    conditions.push(not(ilike(tenders.projectName, `%${neg}%`)));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;

@@ -17,10 +17,15 @@ export async function POST() {
     .returning();
 
   try {
-    const enabledKeywords = await db
+    const allKeywords = await db
       .select()
       .from(keywords)
       .where(eq(keywords.enabled, true));
+
+    const enabledKeywords = allKeywords.filter((k) => k.type !== "negative");
+    const negativeKeywords = allKeywords
+      .filter((k) => k.type === "negative")
+      .map((k) => k.keyword.toLowerCase());
 
     if (enabledKeywords.length === 0) {
       await db
@@ -55,13 +60,20 @@ export async function POST() {
       }
     }
 
+    // Filter out tenders matching negative keywords
+    const filteredTenders = negativeKeywords.length > 0
+      ? uniqueTenders.filter(
+          (t) => !negativeKeywords.some((neg) => t.projectName.toLowerCase().includes(neg))
+        )
+      : uniqueTenders;
+
     // Filter out existing
     const existingIds = new Set(
       (await db.select({ egpId: tenders.egpId }).from(tenders)).map(
         (r) => r.egpId
       )
     );
-    const newTenders = uniqueTenders.filter(
+    const newTenders = filteredTenders.filter(
       (t) => !existingIds.has(t.egpId)
     );
 
@@ -142,7 +154,7 @@ export async function POST() {
       .set({
         status: "completed",
         finishedAt: new Date(),
-        tendersFound: uniqueTenders.length,
+        tendersFound: filteredTenders.length,
         tendersNew: notifyList.length,
       })
       .where(eq(scrapeLog.id, log.id));

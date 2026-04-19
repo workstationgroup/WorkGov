@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { logChange } from "@/lib/changelog";
 
 // Keys that only admin can read/write
 const ADMIN_ONLY_KEYS = ["admin_user_id"];
@@ -74,6 +75,7 @@ export async function PUT(request: Request) {
       .set({ value: String(value), updatedAt: new Date() })
       .where(eq(settings.key, key))
       .returning();
+    await logChange("settings", "update", `Updated "${key}" to "${value}"`);
     return NextResponse.json(row);
   }
 
@@ -81,5 +83,6 @@ export async function PUT(request: Request) {
     .insert(settings)
     .values({ key, value: String(value) })
     .returning();
+  await logChange("settings", "add", `Set "${key}" to "${value}"`);
   return NextResponse.json(row, { status: 201 });
 }
