@@ -143,10 +143,85 @@ function mapMethodId(id: string): string {
   return METHOD_MAP[id] || id;
 }
 
-// Be polite to the shared e-GP login — space out requests so a scrape run
-// doesn't trip rate limiting (observed 429s) and risk the company account.
-const REQUEST_DELAY_MS = 350;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// e-GP rate-limits the shared login aggressively (429 after a burst). To stay
+// under the limit AND survive transient 429s, every e-GP request goes through
+// egpFetch, which (1) serializes calls with a global minimum gap and (2) backs
+// off and retries on 429 instead of dropping the request.
+const REQUEST_DELAY_MS = 600;
+const BACKOFF_MS = [3000, 8000, 15000]; // retry waits on a single 429
+// If we get this many consecutive give-ups, e-GP is applying a sustained block
+// (not a transient burst limit). Stop hammering for the rest of the run — keep
+// the partial data we have and finish fast instead of timing out (and instead
+// of digging the rate-limit penalty deeper on the shared login).
+const CIRCUIT_THRESHOLD = 3;
+let lastRequestAt = 0;
+let gate: Promise<void> = Promise.resolve();
+let consecutiveGiveUps = 0;
+let circuitOpen = false;
+
+// Reset per-run state (scrapeEgp calls this at the start of each run).
+function resetEgpThrottle(): void {
+  consecutiveGiveUps = 0;
+  circuitOpen = false;
+}
+
+// Serialize through a promise chain so concurrent callers still respect the gap.
+async function throttle(): Promise<void> {
+  const mine = gate.then(async () => {
+    const wait = REQUEST_DELAY_MS - (Date.now() - lastRequestAt);
+    if (wait > 0) await sleep(wait);
+    lastRequestAt = Date.now();
+  });
+  gate = mine.catch(() => {});
+  return mine;
+}
+
+async function egpFetch(
+  url: string,
+  token: string,
+  label = "request"
+): Promise<Response | null> {
+  if (circuitOpen) return null; // sustained block detected — skip remaining calls
+  const init: RequestInit = {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  };
+  for (let attempt = 0; ; attempt++) {
+    await throttle();
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch (err) {
+      console.error(`[Scraper] ${label} network error:`, err);
+      return null;
+    }
+    if (res.status !== 429) {
+      consecutiveGiveUps = 0;
+      return res;
+    }
+    if (attempt >= BACKOFF_MS.length) {
+      consecutiveGiveUps++;
+      console.error(
+        `[Scraper] ${label} still 429 after retries — giving up (${consecutiveGiveUps})`
+      );
+      if (consecutiveGiveUps >= CIRCUIT_THRESHOLD) {
+        circuitOpen = true;
+        console.error(
+          "[Scraper] sustained 429 — opening circuit breaker, aborting remaining requests this run"
+        );
+      }
+      return res;
+    }
+    console.warn(
+      `[Scraper] 429 on ${label} — backoff ${BACKOFF_MS[attempt]}ms (retry ${attempt + 1})`
+    );
+    await sleep(BACKOFF_MS[attempt]);
+  }
+}
 
 // Get current Thai Buddhist year (e.g. 2569 for 2026 CE)
 function getCurrentBudgetYear(): string {
@@ -200,16 +275,12 @@ async function getDetailUrl(
   projectId: string
 ): Promise<string | undefined> {
   try {
-    const res = await fetch(
+    const res = await egpFetch(
       `${SEARCH_URL}/encryptApiKey?passKey=${EGP_API_KEY}&sDataValue=${projectId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
+      token,
+      "encryptApiKey"
     );
-    if (!res.ok) return undefined;
+    if (!res || !res.ok) return undefined;
     const json = await res.json();
     if (json.data) {
       const encrypted = encodeURIComponent(json.data);
@@ -227,16 +298,12 @@ async function getProcurementDetail(
   projectId: string
 ): Promise<Record<string, unknown> | null> {
   try {
-    const res = await fetch(
+    const res = await egpFetch(
       `${SEARCH_URL}/getProcurementDetail?projectId=${projectId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
+      token,
+      "getProcurementDetail"
     );
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const json = await res.json();
     return json.data || null;
   } catch {
@@ -260,16 +327,12 @@ async function getTorDocuments(
       typeId: String(detail.typeId || ""),
     });
 
-    const res = await fetch(
+    const res = await egpFetch(
       `${SEARCH_URL}/getTorZipList?${params.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
+      token,
+      "getTorZipList"
     );
-    if (!res.ok) return [];
+    if (!res || !res.ok) return [];
     const json = await res.json();
 
     // getTorZipList returns the bidding-document zip bundle (buildName is a
@@ -293,11 +356,12 @@ async function getProcureResult(
   projectId: string
 ): Promise<{ winner?: Bidder; bidders: Bidder[] } | null> {
   try {
-    const res = await fetch(
+    const res = await egpFetch(
       `${SEARCH_URL}/getProcureResult?projectId=${projectId}`,
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+      token,
+      "getProcureResult"
     );
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const json = await res.json();
     const lists = json.data?.procureResultList || [];
 
@@ -330,11 +394,12 @@ async function getMerchantData(
   tin: string
 ): Promise<WinnerCompanyData | null> {
   try {
-    const res = await fetch(
+    const res = await egpFetch(
       `${MERCHANT_URL}/getMerchantData?merchantTin=${tin}&merchantStatus=N1`,
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+      token,
+      "getMerchantData"
     );
-    if (!res.ok) return null;
+    if (!res || !res.ok) return null;
     const m = (await res.json()).data;
     if (!m || !m.merchantTin) return null;
 
@@ -386,7 +451,6 @@ async function searchTenders(
     const MAX_PAGES = 3;
     const items: Record<string, unknown>[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
-      if (page > 1) await sleep(REQUEST_DELAY_MS);
       const params = new URLSearchParams({
         budgetYear: getCurrentBudgetYear(),
         keywordSearch: keyword,
@@ -395,16 +459,17 @@ async function searchTenders(
         page: String(page),
       });
 
-      const res = await fetch(`${SEARCH_URL}?${params.toString()}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await egpFetch(
+        `${SEARCH_URL}?${params.toString()}`,
+        token,
+        `search "${keyword}" p${page}`
+      );
 
-      if (!res.ok) {
-        console.error(`[Scraper] Search failed for "${keyword}":`, res.status);
+      if (!res || !res.ok) {
+        console.error(
+          `[Scraper] Search failed for "${keyword}":`,
+          res?.status ?? "no response"
+        );
         break;
       }
 
@@ -433,8 +498,8 @@ async function searchTenders(
       const lane = deriveLane(String(item.flowName || ""));
       if (!lane) continue;
 
-      // Only now (for relevant tenders) fetch detail/documents — throttled.
-      await sleep(REQUEST_DELAY_MS);
+      // Only now (for relevant tenders) fetch detail/documents.
+      // (egpFetch throttles every request globally.)
       const detailUrl = await getDetailUrl(token, projectId);
       const detail = await getProcurementDetail(token, projectId);
       const documents = detail
@@ -452,16 +517,14 @@ async function searchTenders(
       let bidders: Bidder[] | undefined;
       let company: WinnerCompanyData | undefined;
       if (lane === "type_b") {
-        await sleep(REQUEST_DELAY_MS);
         const result = await getProcureResult(token, projectId);
         if (result) {
           bidders = result.bidders;
           winnerName = result.winner?.name;
           winnerTin = result.winner?.tin;
           if (winnerTin) {
-            await sleep(REQUEST_DELAY_MS);
             const merchant = await getMerchantData(token, winnerTin);
-            await sleep(REQUEST_DELAY_MS);
+            await sleep(REQUEST_DELAY_MS); // DBD is a separate host
             const dbd = await getDbdInfo(winnerTin);
             const name = merchant?.name || winnerName;
             if (name) {
@@ -531,6 +594,7 @@ async function searchTenders(
 export async function scrapeEgp(
   enabledKeywords: { keyword: string; type: string }[]
 ): Promise<ScrapeResult[]> {
+  resetEgpThrottle();
   const token = await getAccessToken();
 
   if (!token) {
@@ -543,10 +607,11 @@ export async function scrapeEgp(
 
   const results: ScrapeResult[] = [];
 
-  for (let i = 0; i < enabledKeywords.length; i++) {
-    if (i > 0) await sleep(REQUEST_DELAY_MS);
-    const tenders = await searchTenders(token, enabledKeywords[i].keyword);
-    results.push({ tenders, keyword: enabledKeywords[i].keyword });
+  // egpFetch throttles + retries (429 backoff) across every request globally,
+  // so keywords can run back-to-back without manual inter-keyword delays.
+  for (const kw of enabledKeywords) {
+    const tenders = await searchTenders(token, kw.keyword);
+    results.push({ tenders, keyword: kw.keyword });
   }
 
   return results;
