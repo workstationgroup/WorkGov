@@ -63,6 +63,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   callbacks: {
     authorized({ auth, request }) {
+      // Local-development escape hatch — lets `next dev` browse the UI without
+      // Entra/passkey login (which are domain-bound and can't run on
+      // localhost). Requires an explicit opt-in env var AND can never activate
+      // in a production build (Vercel sets NODE_ENV=production).
+      if (
+        process.env.NODE_ENV !== "production" &&
+        process.env.DISABLE_AUTH === "1"
+      ) {
+        return true;
+      }
+
       const { pathname } = request.nextUrl;
       const publicPaths = [
         "/login",

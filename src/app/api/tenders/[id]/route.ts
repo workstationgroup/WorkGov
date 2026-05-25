@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { tenders } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { tenders, winnerCompanies, tenderDocuments } from "@/lib/db/schema";
+import { eq, asc } from "drizzle-orm";
 
 function findTender(db: ReturnType<typeof getDb>, id: string) {
   // Support lookup by numeric ID or e-GP ID
@@ -25,7 +25,25 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json(tender);
+  // Type B: winning company researched after a winner announcement (if any)
+  const [winnerCompany] = await db
+    .select()
+    .from(winnerCompanies)
+    .where(eq(winnerCompanies.tenderId, tender.id))
+    .limit(1);
+
+  // Versioned documents (current + superseded) for the history view
+  const documents = await db
+    .select()
+    .from(tenderDocuments)
+    .where(eq(tenderDocuments.tenderId, tender.id))
+    .orderBy(asc(tenderDocuments.category), asc(tenderDocuments.fetchedAt));
+
+  return NextResponse.json({
+    ...tender,
+    winnerCompany: winnerCompany ?? null,
+    documents,
+  });
 }
 
 export async function PATCH(

@@ -1,39 +1,59 @@
-export interface ClassificationResult {
-  tenderType: "type_a" | "type_b" | "irrelevant";
-  reason: string;
-  summary: string;
+// Tender analysis.
+//
+// The tender TYPE is decided by which search lane found it (Type A = we bid;
+// Type B = construction winner we sell furniture to) — NOT guessed here. This
+// module's job is to (1) gate relevance to the office-furniture business and
+// (2) extract the structured review points the team needs for each lane.
+
+export type TenderLane = "type_a" | "type_b";
+
+export interface TypeAKeyPoints {
+  qualifications: string; // คุณสมบัติผู้เข้าร่วม
+  medianPrice: string; // ราคากลาง
+  medianPriceSource: string; // ราคากลางมาจากบริษัทไหน / สืบค้นจากเว็บ
+  deliveryTime: string; // ระยะเวลาส่งมอบงาน
+  penalty: string; // ค่าปรับ
+  detailedSpecs: string; // สเปคสินค้าแบบละเอียด
+  specLockNote: string; // มีใคร lock spec ไหม
+  contactChannel: string; // ช่องทางติดต่อ
 }
 
-export async function classifyTender(tender: {
+export interface TypeBWinner {
+  winnerName: string;
+  winnerPrice: string;
+  contractDate: string; // วันเซ็นสัญญา (ระวังเลขไทย)
+}
+
+export interface ClassificationResult {
+  relevant: boolean;
+  reason: string;
+  summary: string;
+  keyPoints?: TypeAKeyPoints; // type_a only
+  winner?: TypeBWinner; // type_b only
+}
+
+interface ClassifyInput {
+  lane: TenderLane;
   projectName: string;
   agency?: string;
   budget?: string;
   scopeOfWork?: string;
   matchedKeyword?: string;
-}): Promise<ClassificationResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  documentText?: string; // extracted PDF text, when available
+}
 
+const MODEL = "claude-haiku-4-5-20251001";
+
+export async function classifyTender(
+  input: ClassifyInput
+): Promise<ClassificationResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.log("[AI] Missing ANTHROPIC_API_KEY, using keyword-only classification");
-    return fallbackClassify(tender);
+    console.log("[AI] Missing ANTHROPIC_API_KEY, using relevance fallback");
+    return fallbackClassify(input);
   }
 
-  const prompt = `คุณเป็นผู้เชี่ยวชาญด้านการจัดซื้อจัดจ้างภาครัฐของไทย วิเคราะห์ประกาศจัดซื้อจัดจ้างนี้สำหรับบริษัทขายเฟอร์นิเจอร์สำนักงาน (โต๊ะ, เก้าอี้, ตู้, พาร์ทิชั่น, ครุภัณฑ์สำนักงาน)
-
-ข้อมูลประกาศ:
-- ชื่อโครงการ: ${tender.projectName}
-- หน่วยงาน: ${tender.agency || "ไม่ระบุ"}
-- งบประมาณ: ${tender.budget || "ไม่ระบุ"}
-- ขอบเขตงาน: ${tender.scopeOfWork || "ไม่ระบุ"}
-- คีย์เวิร์ดที่พบ: ${tender.matchedKeyword || "ไม่ระบุ"}
-
-จำแนกประเภท:
-- type_a: เสนอราคาได้โดยตรง — โครงการซื้อเฟอร์นิเจอร์/ครุภัณฑ์สำนักงาน
-- type_b: โอกาสในอนาคต — โครงการก่อสร้าง/ปรับปรุงอาคารที่อาจต้องใช้เฟอร์นิเจอร์ภายหลัง
-- irrelevant: ไม่เกี่ยวข้องกับเฟอร์นิเจอร์สำนักงานเลย
-
-ตอบเป็น JSON เท่านั้น:
-{"tenderType": "type_a|type_b|irrelevant", "reason": "เหตุผลสั้นๆ", "summary": "สรุปโครงการ 1-2 ประโยค"}`;
+  const prompt = buildPrompt(input);
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -44,79 +64,82 @@ export async function classifyTender(tender: {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 300,
+        model: MODEL,
+        max_tokens: 1024,
         messages: [{ role: "user", content: prompt }],
       }),
     });
 
     if (!res.ok) {
       console.error("[AI] API error:", res.status);
-      return fallbackClassify(tender);
+      return fallbackClassify(input);
     }
 
     const data = await res.json();
     const text =
       data.content?.[0]?.type === "text" ? data.content[0].text : "";
 
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error("[AI] Could not parse JSON from response");
-      return fallbackClassify(tender);
+      return fallbackClassify(input);
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
-    if (!["type_a", "type_b", "irrelevant"].includes(parsed.tenderType)) {
-      return fallbackClassify(tender);
-    }
 
     return {
-      tenderType: parsed.tenderType,
+      relevant: parsed.relevant !== false,
       reason: parsed.reason || "",
       summary: parsed.summary || "",
+      keyPoints: input.lane === "type_a" ? parsed.keyPoints : undefined,
+      winner: input.lane === "type_b" ? parsed.winner : undefined,
     };
   } catch (err) {
     console.error("[AI] Classification error:", err);
-    return fallbackClassify(tender);
+    return fallbackClassify(input);
   }
 }
 
-function fallbackClassify(tender: {
-  projectName: string;
-  matchedKeyword?: string;
-}): ClassificationResult {
-  const name = tender.projectName.toLowerCase();
-  const keyword = tender.matchedKeyword || "";
+function buildPrompt(input: ClassifyInput): string {
+  const header = `คุณเป็นผู้เชี่ยวชาญด้านการจัดซื้อจัดจ้างภาครัฐของไทย วิเคราะห์ประกาศนี้ให้บริษัทขายเฟอร์นิเจอร์สำนักงาน (โต๊ะ, เก้าอี้, ตู้, พาร์ทิชั่น, ครุภัณฑ์สำนักงาน)
 
-  const typeAPatterns = [
-    "ครุภัณฑ์สำนักงาน",
-    "เฟอร์นิเจอร์",
-    "โต๊ะ",
-    "เก้าอี้",
-    "ตู้",
-    "พาร์ทิชั่น",
-  ];
-  const typeBPatterns = ["ก่อสร้างอาคาร", "ปรับปรุงอาคาร"];
+ข้อมูลประกาศ:
+- ชื่อโครงการ: ${input.projectName}
+- หน่วยงาน: ${input.agency || "ไม่ระบุ"}
+- งบประมาณ: ${input.budget || "ไม่ระบุ"}
+- ขอบเขตงาน: ${input.scopeOfWork || "ไม่ระบุ"}
+- คีย์เวิร์ดที่พบ: ${input.matchedKeyword || "ไม่ระบุ"}${
+    input.documentText
+      ? `\n\nเนื้อหาจากเอกสารแนบ:\n${input.documentText.slice(0, 12000)}`
+      : ""
+  }`;
 
-  if (typeAPatterns.some((p) => name.includes(p) || keyword.includes(p))) {
-    return {
-      tenderType: "type_a",
-      reason: "Keyword match (fallback — no AI key)",
-      summary: tender.projectName.slice(0, 100),
-    };
+  if (input.lane === "type_a") {
+    return `${header}
+
+นี่คืองานที่บริษัทจะ "เข้าประมูลเอง" (Type A) ให้ทำ 2 อย่าง:
+1. ประเมินว่าโครงการนี้เกี่ยวข้องกับเฟอร์นิเจอร์/ครุภัณฑ์สำนักงานที่เราขายหรือไม่ (relevant)
+2. สกัดประเด็นสำคัญสำหรับเตรียมยื่นซอง
+
+ตอบเป็น JSON เท่านั้น (ฟิลด์ที่ไม่พบให้ใส่ "ไม่ระบุ"):
+{"relevant": true|false, "reason": "เหตุผลสั้นๆ", "summary": "สรุปโครงการ 1-2 ประโยค", "keyPoints": {"qualifications": "คุณสมบัติผู้เข้าร่วม", "medianPrice": "ราคากลาง", "medianPriceSource": "ราคากลางมาจากบริษัทใด/สืบค้นจากเว็บ", "deliveryTime": "ระยะเวลาส่งมอบ", "penalty": "ค่าปรับ", "detailedSpecs": "สเปคสินค้าโดยละเอียด", "specLockNote": "มีการล็อกสเปคให้รายใดหรือไม่ พร้อมเหตุผล", "contactChannel": "ช่องทางติดต่อหน่วยงาน"}}`;
   }
 
-  if (typeBPatterns.some((p) => name.includes(p) || keyword.includes(p))) {
-    return {
-      tenderType: "type_b",
-      reason: "Construction keyword match (fallback — no AI key)",
-      summary: tender.projectName.slice(0, 100),
-    };
-  }
+  return `${header}
 
+นี่คืองานก่อสร้างที่เรา "ไม่ได้ประมูลเอง" แต่ต้องการหา "ผู้ชนะ" เพื่อวิ่งเข้าไปขายเฟอร์นิเจอร์ภายหลัง (Type B) ให้ทำ 2 อย่าง:
+1. ประเมินว่าโครงการนี้น่าจะมีความต้องการเฟอร์นิเจอร์ตามมาหรือไม่ (relevant)
+2. สกัดข้อมูลผู้ชนะ — ระวังตัวเลขไทย (๐๑๒๓๔๕๖๗๘๙) ให้แปลงเป็นเลขอารบิก
+
+ตอบเป็น JSON เท่านั้น (ฟิลด์ที่ไม่พบให้ใส่ "ไม่ระบุ"):
+{"relevant": true|false, "reason": "เหตุผลสั้นๆ", "summary": "สรุปโครงการ 1-2 ประโยค", "winner": {"winnerName": "ชื่อบริษัทผู้ชนะ", "winnerPrice": "ราคาที่ชนะ (ตัวเลขอารบิก)", "contractDate": "วันเซ็นสัญญา (YYYY-MM-DD ถ้าทราบ)"}}`;
+}
+
+// No API key: keep everything (don't silently drop tenders), no extraction.
+function fallbackClassify(input: ClassifyInput): ClassificationResult {
   return {
-    tenderType: "type_a",
-    reason: "Default classification (fallback — no AI key)",
-    summary: tender.projectName.slice(0, 100),
+    relevant: true,
+    reason: "Kept without AI analysis (no ANTHROPIC_API_KEY)",
+    summary: input.projectName.slice(0, 120),
   };
 }

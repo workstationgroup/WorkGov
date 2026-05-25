@@ -113,6 +113,18 @@ export const tenders = pgTable("tenders", {
   competitors: jsonb("competitors"),
   matchedKeyword: varchar("matched_keyword", { length: 100 }),
 
+  // Type A — structured summary of the 8 key review points
+  // { qualifications, medianPrice, medianPriceSource, deliveryTime,
+  //   penalty, detailedSpecs, specLockNote, contactChannel }
+  keyPoints: jsonb("key_points"),
+
+  // Type B — winning bid summary (winner company is in winner_companies)
+  winnerName: text("winner_name"),
+  winnerTin: varchar("winner_tin", { length: 20 }),
+  winnerPrice: numeric("winner_price", { precision: 18, scale: 2 }),
+  // All bidders + proposed prices from getProcureResult (สรุปการเสนอราคา)
+  bidders: jsonb("bidders"),
+
   // Timeline checkpoints
   announceDate: timestamp("announce_date"),
   documentStartDate: timestamp("document_start_date"),
@@ -122,6 +134,9 @@ export const tenders = pgTable("tenders", {
   openingDate: timestamp("opening_date"),
   resultDate: timestamp("result_date"),
   contractDate: timestamp("contract_date"),
+
+  // Set when a re-scrape detects a changed/new related document.
+  documentsUpdatedAt: timestamp("documents_updated_at"),
 
   // Source data
   detailUrl: text("detail_url"),
@@ -172,4 +187,48 @@ export const scrapeLog = pgTable("scrape_log", {
   tendersFound: integer("tenders_found").default(0),
   tendersNew: integer("tenders_new").default(0),
   errorMessage: text("error_message"),
+});
+
+// Documents downloaded from a tender's "เอกสาร/ประกาศที่เกี่ยวข้อง" section.
+// Versioned: when a doc's webDate changes, the old row is marked supersededAt
+// and a new row inserted, so we can diff versions.
+export const tenderDocuments = pgTable("tender_documents", {
+  id: serial("id").primaryKey(),
+  tenderId: integer("tender_id")
+    .notNull()
+    .references(() => tenders.id, { onDelete: "cascade" }),
+  // price_median | tor_bidding | invitation | bid_summary | winner | other
+  category: varchar("category", { length: 20 }).notNull().default("other"),
+  name: text("name").notNull(),
+  webDate: timestamp("web_date"),
+  url: text("url"),
+  fetchedAt: timestamp("fetched_at"),
+  supersededAt: timestamp("superseded_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Type B — winning company researched after a winner announcement.
+export const winnerCompanies = pgTable("winner_companies", {
+  id: serial("id").primaryKey(),
+  tenderId: integer("tender_id")
+    .notNull()
+    .references(() => tenders.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  nameEn: text("name_en"),
+  taxId: varchar("tax_id", { length: 20 }),
+  address: text("address"),
+  mapUrl: text("map_url"),
+  phone: varchar("phone", { length: 100 }),
+  website: text("website"),
+  socialMedia: jsonb("social_media"),
+  businessType: text("business_type"),
+  blacklistStatus: varchar("blacklist_status", { length: 50 }),
+  directors: jsonb("directors"),
+  // From DBD OpenAPI
+  dbdStatus: varchar("dbd_status", { length: 100 }),
+  businessObjective: text("business_objective"),
+  registeredCapital: varchar("registered_capital", { length: 50 }),
+  registerDate: varchar("register_date", { length: 8 }),
+  dbdUrl: text("dbd_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });

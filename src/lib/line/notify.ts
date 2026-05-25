@@ -141,7 +141,11 @@ function buildTenderBubble(t: TenderNotification) {
   return bubble;
 }
 
-export async function sendLineNotification(tenders: TenderNotification[]) {
+export async function sendLineNotification(
+  tenders: TenderNotification[],
+  opts: { kind?: "new" | "updated" } = {}
+) {
+  const kind = opts.kind ?? "new";
   const enabled = await isLineEnabled();
   if (!enabled) {
     console.log("[LINE] Notifications disabled in settings");
@@ -164,11 +168,17 @@ export async function sendLineNotification(tenders: TenderNotification[]) {
   const typeBCount = tenders.filter((t) => t.tenderType === "type_b").length;
 
   // Header text message
-  const headerLines = [
-    `🔔 WorkGov: พบประกาศใหม่ ${tenders.length} รายการ`,
-    typeACount > 0 ? `  Type A (เสนอราคาได้): ${typeACount}` : "",
-    typeBCount > 0 ? `  Type B (โอกาสในอนาคต): ${typeBCount}` : "",
-  ].filter(Boolean);
+  const headerLines =
+    kind === "updated"
+      ? [
+          `📝 WorkGov: เอกสารอัปเดต ${tenders.length} โครงการ`,
+          `  (มีการเปลี่ยนแปลงเอกสาร/ประกาศ — ควรตรวจสอบ)`,
+        ]
+      : [
+          `🔔 WorkGov: พบประกาศใหม่ ${tenders.length} รายการ`,
+          typeACount > 0 ? `  Type A (เสนอราคาได้): ${typeACount}` : "",
+          typeBCount > 0 ? `  Type B (โอกาสในอนาคต): ${typeBCount}` : "",
+        ].filter(Boolean);
 
   const headerMessage = {
     type: "text" as const,
@@ -180,7 +190,10 @@ export async function sendLineNotification(tenders: TenderNotification[]) {
 
   const flexMessage = {
     type: "flex" as const,
-    altText: `พบประกาศใหม่ ${tenders.length} รายการ`,
+    altText:
+      kind === "updated"
+        ? `เอกสารอัปเดต ${tenders.length} โครงการ`
+        : `พบประกาศใหม่ ${tenders.length} รายการ`,
     contents: {
       type: "carousel",
       contents: bubbles,
