@@ -121,18 +121,47 @@ export function isWinnerStage(flowName: string): boolean {
 //   e-bidding (methodId 16): invitation/draft = Type A (we bid),
 //                            winner = Type B (find construction winner to sell to)
 //   any other method:        Type C (non-e-bidding bidding — any tracked stage)
-export function deriveLane(flowName: string, methodId: string): Lane | null {
+// Construction/building work — the winner becomes a furniture buyer afterward.
+// Thai tender names are formulaic: "...จ้างก่อสร้าง..." / "ปรับปรุงอาคาร" vs
+// "...ซื้อ..." (goods). A goods purchase is something WE supply, not a lead.
+export function isConstruction(projectName: string): boolean {
+  const n = projectName || "";
+  return /ก่อสร้าง/.test(n) || (/ปรับปรุง/.test(n) && /อาคาร/.test(n));
+}
+
+// Map an announcement to a lane from procurement method + stage + project
+// nature. The core idea:
+//   - We SELL furniture, so a furniture/goods purchase only matters while we
+//     can still bid (invitation). Once it has a winner it's a missed deal.
+//   - Construction is the opposite: we can't build, so it only matters once a
+//     winner exists (that contractor will need furniture → we sell to them).
+//   A/B/C:
+//     Type A = goods + e-bidding + invitation     (we bid)
+//     Type B = construction + e-bidding + winner   (sell to the winner)
+//     Type C = same logic but a non-e-bidding method
+export function deriveLane(
+  flowName: string,
+  methodId: string,
+  projectName: string
+): Lane | null {
   const f = flowName || "";
   const winner = f.includes("ผู้ชนะ");
   const invite = f.includes("ร่าง") || f.includes("เชิญชวน");
   if (!winner && !invite) return null;
-  // เฉพาะเจาะจง (direct purchase, methodId 19) with a winner already announced
-  // is a closed deal — no chance to sell into it, so skip. (Competitive
-  // non-e-bidding methods stay as Type C: their winner is a contractor we can
-  // still approach, like Type B.)
-  if (methodId === "19" && winner) return null;
-  if (methodId !== "16") return "type_c";
-  return winner ? "type_b" : "type_a";
+
+  const construction = isConstruction(projectName);
+  const ebid = methodId === "16";
+
+  if (winner) {
+    // Only construction winners are leads. Goods already awarded = too late.
+    // เฉพาะเจาะจง (direct) is always a closed deal at winner stage.
+    if (!construction || methodId === "19") return null;
+    return ebid ? "type_b" : "type_c";
+  }
+  // Invitation: construction isn't biddable by us (wait for its winner);
+  // goods we can bid → A (e-bidding) or C (other competitive method).
+  if (construction) return null;
+  return ebid ? "type_a" : "type_c";
 }
 
 export interface ScrapeResult {
@@ -510,9 +539,9 @@ async function searchTenders(
 
       const methodId = String(item.methodId || "");
       const flowName = String(item.flowName || "");
-      // Lane from method + stage: e-bidding → A/B, anything else → C.
-      // Skip stages we don't track (contract management, cancelled, etc.).
-      const lane = deriveLane(flowName, methodId);
+      const projectName = String(item.projectName || "");
+      // Lane from method + stage + project nature (construction vs goods).
+      const lane = deriveLane(flowName, methodId, projectName);
       if (!lane) continue;
       const winnerStage = isWinnerStage(flowName);
 
