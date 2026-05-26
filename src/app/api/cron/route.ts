@@ -164,7 +164,7 @@ export async function GET(request: Request) {
           projectName: row.projectName,
           agency: row.agency || "",
           budget: row.budget,
-          tenderType: row.tenderType as "type_a" | "type_b",
+          tenderType: row.tenderType as "type_a" | "type_b" | "type_c",
           aiSummary: "เอกสาร/ประกาศมีการอัปเดต",
           submissionDate: row.submissionDate
             ? row.submissionDate.toLocaleDateString("th-TH")
@@ -275,7 +275,7 @@ export async function GET(request: Request) {
         projectName: inserted.projectName,
         agency: inserted.agency || "",
         budget: inserted.budget,
-        tenderType: inserted.tenderType as "type_a" | "type_b",
+        tenderType: inserted.tenderType as "type_a" | "type_b" | "type_c",
         aiSummary: inserted.aiSummary,
         submissionDate: inserted.submissionDate
           ? inserted.submissionDate.toLocaleDateString("th-TH")

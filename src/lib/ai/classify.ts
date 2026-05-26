@@ -5,7 +5,8 @@
 // module's job is to (1) gate relevance to the office-furniture business and
 // (2) extract the structured review points the team needs for each lane.
 
-export type TenderLane = "type_a" | "type_b";
+// type_c = non-e-bidding (uses the winner-oriented prompt, like type_b)
+export type TenderLane = "type_a" | "type_b" | "type_c";
 
 export interface TypeAKeyPoints {
   qualifications: string; // คุณสมบัติผู้เข้าร่วม
@@ -92,7 +93,7 @@ export async function classifyTender(
       reason: parsed.reason || "",
       summary: parsed.summary || "",
       keyPoints: input.lane === "type_a" ? parsed.keyPoints : undefined,
-      winner: input.lane === "type_b" ? parsed.winner : undefined,
+      winner: input.lane === "type_a" ? undefined : parsed.winner,
     };
   } catch (err) {
     console.error("[AI] Classification error:", err);

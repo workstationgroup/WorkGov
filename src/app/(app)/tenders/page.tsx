@@ -117,8 +117,9 @@ export default function TendersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="type_a">Type A — Bid</SelectItem>
-                  <SelectItem value="type_b">Type B — Future</SelectItem>
+                  <SelectItem value="type_a">Type A — ประมูลเอง</SelectItem>
+                  <SelectItem value="type_b">Type B — หาผู้ชนะ</SelectItem>
+                  <SelectItem value="type_c">Type C — ไม่ใช่ e-bidding</SelectItem>
                 </SelectContent>
               </Select>
               <Select

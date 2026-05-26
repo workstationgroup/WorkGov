@@ -2,7 +2,7 @@ export interface TenderNotification {
   projectName: string;
   agency: string;
   budget: string | null;
-  tenderType: "type_a" | "type_b";
+  tenderType: "type_a" | "type_b" | "type_c";
   aiSummary: string | null;
   submissionDate: string | null;
   detailUrl: string | null;
@@ -23,8 +23,14 @@ export async function isLineEnabled(): Promise<boolean> {
 }
 
 function buildTenderBubble(t: TenderNotification) {
-  const typeLabel = t.tenderType === "type_a" ? "A" : "B";
-  const typeColor = t.tenderType === "type_a" ? "#0EA5E9" : "#F59E0B";
+  const typeLabel =
+    t.tenderType === "type_a" ? "A" : t.tenderType === "type_b" ? "B" : "C";
+  const typeColor =
+    t.tenderType === "type_a"
+      ? "#0EA5E9"
+      : t.tenderType === "type_b"
+        ? "#F59E0B"
+        : "#8B5CF6"; // type_c = purple
   const budget = t.budget
     ? `฿${Number(t.budget).toLocaleString()}`
     : "ไม่ระบุงบ";
@@ -166,6 +172,7 @@ export async function sendLineNotification(
 
   const typeACount = tenders.filter((t) => t.tenderType === "type_a").length;
   const typeBCount = tenders.filter((t) => t.tenderType === "type_b").length;
+  const typeCCount = tenders.filter((t) => t.tenderType === "type_c").length;
 
   // Header text message
   const headerLines =
@@ -176,8 +183,9 @@ export async function sendLineNotification(
         ]
       : [
           `🔔 WorkGov: พบประกาศใหม่ ${tenders.length} รายการ`,
-          typeACount > 0 ? `  Type A (เสนอราคาได้): ${typeACount}` : "",
-          typeBCount > 0 ? `  Type B (โอกาสในอนาคต): ${typeBCount}` : "",
+          typeACount > 0 ? `  Type A (เสนอราคาเอง): ${typeACount}` : "",
+          typeBCount > 0 ? `  Type B (หาผู้ชนะไปขาย): ${typeBCount}` : "",
+          typeCCount > 0 ? `  Type C (ไม่ใช่ e-bidding): ${typeCCount}` : "",
         ].filter(Boolean);
 
   const headerMessage = {

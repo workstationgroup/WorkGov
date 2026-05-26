@@ -387,7 +387,7 @@ export default function TenderDetailPage() {
             </Card>
           )}
 
-          {tender.tenderType === "type_b" &&
+          {(tender.tenderType === "type_b" || tender.tenderType === "type_c") &&
             (tender.winnerName || tender.winnerCompany) && (
               <Card>
                 <CardHeader>

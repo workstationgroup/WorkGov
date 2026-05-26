@@ -67,10 +67,11 @@ export interface RawTender {
   documents?: TenderDocument[];
   rawData?: Record<string, unknown>;
 
-  // Lane derived from the e-GP flow stage (not the keyword):
-  //   type_a = ร่าง TOR / ประกาศเชิญชวน (we bid)
-  //   type_b = ประกาศผู้ชนะ (find winner to sell to)
-  lane?: "type_a" | "type_b";
+  // Lane derived from procurement method + flow stage (not the keyword):
+  //   type_a = e-bidding, ร่าง TOR / ประกาศเชิญชวน (we bid)
+  //   type_b = e-bidding, ประกาศผู้ชนะ (find winner to sell to)
+  //   type_c = non-e-bidding (any tracked stage)
+  lane?: Lane;
   // Structured fields straight from getProcurementDetail (no PDF parsing):
   deliverDay?: number; // ระยะเวลาส่งมอบ (วัน)
   winnerPrice?: string; // priceAgree — ราคาที่ตกลง/ชนะ (Type B)
@@ -108,13 +109,25 @@ export interface WinnerCompanyData {
   dbdUrl?: string;
 }
 
-// Map an e-GP flowName to our lane. Returns null for stages we don't track
-// (contract management, cancelled, etc.).
-export function deriveLane(flowName: string): "type_a" | "type_b" | null {
+export type Lane = "type_a" | "type_b" | "type_c";
+
+// True when a flow is at the winner-announcement stage (drives enrichment).
+export function isWinnerStage(flowName: string): boolean {
+  return (flowName || "").includes("ผู้ชนะ");
+}
+
+// Map an e-GP announcement to our lane based on procurement method + stage.
+// Returns null for stages we don't track (contract management, cancelled…).
+//   e-bidding (methodId 16): invitation/draft = Type A (we bid),
+//                            winner = Type B (find construction winner to sell to)
+//   any other method:        Type C (non-e-bidding bidding — any tracked stage)
+export function deriveLane(flowName: string, methodId: string): Lane | null {
   const f = flowName || "";
-  if (f.includes("ผู้ชนะ")) return "type_b";
-  if (f.includes("ร่าง") || f.includes("เชิญชวน")) return "type_a";
-  return null;
+  const winner = f.includes("ผู้ชนะ");
+  const invite = f.includes("ร่าง") || f.includes("เชิญชวน");
+  if (!winner && !invite) return null;
+  if (methodId !== "16") return "type_c";
+  return winner ? "type_b" : "type_a";
 }
 
 export interface ScrapeResult {
@@ -446,59 +459,57 @@ async function searchTenders(
   keyword: string
 ): Promise<RawTender[]> {
   try {
-    // methodId=16 filters to e-bidding server-side. Page 1 holds the newest
-    // announcements; with keyword rotation (one keyword per cron tick) a small
-    // 1-page burst keeps us well under e-GP's rate limit and still catches new
-    // tenders quickly. Older pages get re-covered as the rotation cycles.
-    const MAX_PAGES = 1;
-    const items: Record<string, unknown>[] = [];
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    // Two page-1 searches per keyword: methodId=16 surfaces e-bidding (A/B),
+    // which is rare in an unfiltered list, and an unfiltered search captures
+    // non-e-bidding (Type C). Dedupe by projectId. Page 1 holds the newest;
+    // keyword rotation re-covers over time and keeps each burst small.
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const variant of ["ebidding", "all"] as const) {
       const params = new URLSearchParams({
         budgetYear: getCurrentBudgetYear(),
         keywordSearch: keyword,
-        methodId: "16",
         announcementTodayFlag: "false",
-        page: String(page),
+        page: "1",
       });
+      if (variant === "ebidding") params.set("methodId", "16");
 
       const res = await egpFetch(
         `${SEARCH_URL}?${params.toString()}`,
         token,
-        `search "${keyword}" p${page}`
+        `search "${keyword}" ${variant}`
       );
-
       if (!res || !res.ok) {
         console.error(
-          `[Scraper] Search failed for "${keyword}":`,
+          `[Scraper] Search "${keyword}" ${variant} failed:`,
           res?.status ?? "no response"
         );
-        break;
+        continue;
       }
-
       const json = await res.json();
       if (json.validateCfTurnTile === false) {
         console.error(`[Scraper] Cloudflare blocked for "${keyword}"`);
-        break;
+        continue;
       }
-
-      const pageItems = (json.data?.data || []) as Record<string, unknown>[];
-      items.push(...pageItems);
-      if (pageItems.length === 0) break;
+      for (const it of (json.data?.data || []) as Record<string, unknown>[]) {
+        const pid = String(it.projectId || "");
+        if (pid && !byId.has(pid)) byId.set(pid, it);
+      }
     }
+    const items = [...byId.values()];
 
     const tenders: RawTender[] = [];
 
-    for (const item of items as Record<string, unknown>[]) {
+    for (const item of items) {
       const projectId = String(item.projectId || "");
       if (!projectId) continue;
 
-      // Both flows require e-bidding (ประกวดราคาอิเล็กทรอนิกส์).
-      if (String(item.methodId || "") !== "16") continue;
-
-      // Lane comes from the announcement stage, not the keyword. Skip stages
-      // we don't track (contract management, cancelled, etc.).
-      const lane = deriveLane(String(item.flowName || ""));
+      const methodId = String(item.methodId || "");
+      const flowName = String(item.flowName || "");
+      // Lane from method + stage: e-bidding → A/B, anything else → C.
+      // Skip stages we don't track (contract management, cancelled, etc.).
+      const lane = deriveLane(flowName, methodId);
       if (!lane) continue;
+      const winnerStage = isWinnerStage(flowName);
 
       // Only now (for relevant tenders) fetch detail/documents.
       // (egpFetch throttles every request globally.)
@@ -513,12 +524,13 @@ async function searchTenders(
       const priceAgree = detail?.priceAgree;
       const deliverDay = detail?.deliverDay;
 
-      // Type B: pull the winner + bidders, then the winner's company record.
+      // Winner stage (Type B, or winner-stage Type C): pull the winner +
+      // bidders, then the winner's company record.
       let winnerName: string | undefined;
       let winnerTin: string | undefined;
       let bidders: Bidder[] | undefined;
       let company: WinnerCompanyData | undefined;
-      if (lane === "type_b") {
+      if (winnerStage) {
         const result = await getProcureResult(token, projectId);
         if (result) {
           bidders = result.bidders;
@@ -574,9 +586,7 @@ async function searchTenders(
         lane,
         deliverDay: typeof deliverDay === "number" ? deliverDay : undefined,
         winnerPrice:
-          lane === "type_b" && priceAgree != null
-            ? String(priceAgree)
-            : undefined,
+          winnerStage && priceAgree != null ? String(priceAgree) : undefined,
         winnerName,
         winnerTin,
         bidders,

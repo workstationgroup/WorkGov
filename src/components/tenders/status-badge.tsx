@@ -9,7 +9,7 @@ export type TenderStatus =
   | "lost"
   | "skipped";
 
-export type TenderType = "type_a" | "type_b" | "irrelevant";
+export type TenderType = "type_a" | "type_b" | "type_c" | "irrelevant";
 
 const statusConfig: Record<
   TenderStatus,
@@ -43,12 +43,16 @@ const statusConfig: Record<
 
 const typeConfig: Record<TenderType, { label: string; className: string }> = {
   type_a: {
-    label: "Type A — Bid Now",
+    label: "Type A — ประมูลเอง",
     className: "bg-sky-100 text-sky-800 border-sky-200",
   },
   type_b: {
-    label: "Type B — Future",
+    label: "Type B — หาผู้ชนะ",
     className: "bg-amber-100 text-amber-800 border-amber-200",
+  },
+  type_c: {
+    label: "Type C — ไม่ใช่ e-bidding",
+    className: "bg-violet-100 text-violet-800 border-violet-200",
   },
   irrelevant: {
     label: "Irrelevant",

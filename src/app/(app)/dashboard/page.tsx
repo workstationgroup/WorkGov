@@ -274,10 +274,16 @@ export default function DashboardPage() {
                           className={
                             tender.tenderType === "type_a"
                               ? "bg-sky-100 text-sky-800 border-sky-200 text-xs"
-                              : "bg-amber-100 text-amber-800 border-amber-200 text-xs"
+                              : tender.tenderType === "type_b"
+                                ? "bg-amber-100 text-amber-800 border-amber-200 text-xs"
+                                : "bg-violet-100 text-violet-800 border-violet-200 text-xs"
                           }
                         >
-                          {tender.tenderType === "type_a" ? "Type A" : "Type B"}
+                          {tender.tenderType === "type_a"
+                            ? "Type A"
+                            : tender.tenderType === "type_b"
+                              ? "Type B"
+                              : "Type C"}
                         </Badge>
                         <Badge
                           variant="outline"
