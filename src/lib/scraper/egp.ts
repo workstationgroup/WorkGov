@@ -446,9 +446,11 @@ async function searchTenders(
   keyword: string
 ): Promise<RawTender[]> {
   try {
-    // methodId=16 filters to e-bidding server-side, so the pages are dense
-    // with the announcements both flows care about. Page through a few pages.
-    const MAX_PAGES = 3;
+    // methodId=16 filters to e-bidding server-side. Page 1 holds the newest
+    // announcements; with keyword rotation (one keyword per cron tick) a small
+    // 1-page burst keeps us well under e-GP's rate limit and still catches new
+    // tenders quickly. Older pages get re-covered as the rotation cycles.
+    const MAX_PAGES = 1;
     const items: Record<string, unknown>[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
       const params = new URLSearchParams({

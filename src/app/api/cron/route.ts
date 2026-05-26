@@ -6,8 +6,9 @@ import {
   tenders,
   winnerCompanies,
   scrapeLog,
+  settings,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { scrapeEgp, parseBidPrice, type RawTender } from "@/lib/scraper/egp";
 import {
   insertTenderDocuments,
@@ -27,8 +28,11 @@ function getCurrentTimeUTC7(): string {
   return utc7.toISOString().slice(11, 16); // "HH:MM"
 }
 
-// Vercel Cron heartbeat — runs every 15 minutes
-// Checks if current time matches a scheduled run in the database
+// Vercel Cron heartbeat — runs every 15 minutes.
+// e-GP rate-limits bursts (429 after ~3 keywords), so instead of scraping all
+// keywords at once we ROTATE: each tick scrapes ONE keyword (cursor in
+// settings). Small bursts spaced 15 min apart stay under the limit; a full
+// cycle takes ~N×15 min and then repeats, refreshing all day.
 export async function GET(request: Request) {
   // Verify cron secret to prevent unauthorized access
   const authHeader = request.headers.get("authorization");
@@ -39,61 +43,70 @@ export async function GET(request: Request) {
   const db = getDb();
   const currentTime = getCurrentTimeUTC7();
 
-  // Check if current time matches any enabled schedule
-  // Cron runs every 15 min, so match if current HH:MM equals a schedule time
+  // The Vercel cron fires every 15 min; act only on :00 and :30 so we scrape
+  // one keyword roughly every 30 min — gentle on the shared e-GP account.
+  const minute = currentTime.slice(3);
+  if (minute !== "00" && minute !== "30") {
+    return NextResponse.json({ ok: true, checked_at: currentTime, skipped: true });
+  }
+
+  // Scraping on/off is controlled by whether ANY schedule is enabled. The
+  // specific times are no longer used for matching (we rotate continuously).
   const enabledSchedules = await db
     .select()
     .from(schedules)
-    .where(and(eq(schedules.enabled, true), eq(schedules.time, currentTime)));
+    .where(eq(schedules.enabled, true));
 
   if (enabledSchedules.length === 0) {
     return NextResponse.json({
       ok: true,
       checked_at: currentTime,
-      matched: false,
-      message: "No matching schedule",
+      scraping: false,
+      message: "Scraping disabled (no enabled schedule)",
     });
   }
 
-  // We have a match — run the scraper
+  // Enabled search keywords (stable order) + negative filters.
+  const allKeywords = await db
+    .select()
+    .from(keywords)
+    .where(eq(keywords.enabled, true))
+    .orderBy(asc(keywords.id));
+
+  const enabledKeywords = allKeywords.filter((k) => k.type !== "negative");
+  const negativeKeywords = allKeywords
+    .filter((k) => k.type === "negative")
+    .map((k) => k.keyword.toLowerCase());
+
+  if (enabledKeywords.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      checked_at: currentTime,
+      message: "No keywords configured",
+    });
+  }
+
+  // Pick one keyword via a rotating cursor, then advance it.
+  const [cur] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, "scrape_cursor"));
+  const cursor = cur ? parseInt(cur.value, 10) || 0 : 0;
+  const selected = enabledKeywords[cursor % enabledKeywords.length];
+  const nextCursor = String((cursor + 1) % enabledKeywords.length);
+  await db
+    .insert(settings)
+    .values({ key: "scrape_cursor", value: nextCursor })
+    .onConflictDoUpdate({ target: settings.key, set: { value: nextCursor } });
+
   const [log] = await db
     .insert(scrapeLog)
     .values({ status: "running" })
     .returning();
 
   try {
-    // Get enabled keywords (split search terms from negative filters)
-    const allKeywords = await db
-      .select()
-      .from(keywords)
-      .where(eq(keywords.enabled, true));
-
-    const enabledKeywords = allKeywords.filter((k) => k.type !== "negative");
-    const negativeKeywords = allKeywords
-      .filter((k) => k.type === "negative")
-      .map((k) => k.keyword.toLowerCase());
-
-    if (enabledKeywords.length === 0) {
-      await db
-        .update(scrapeLog)
-        .set({
-          status: "completed",
-          finishedAt: new Date(),
-          tendersFound: 0,
-          tendersNew: 0,
-        })
-        .where(eq(scrapeLog.id, log.id));
-
-      return NextResponse.json({
-        ok: true,
-        checked_at: currentTime,
-        matched: true,
-        message: "No keywords configured",
-      });
-    }
-
-    // Scrape e-GP for each keyword
-    const scrapeResults = await scrapeEgp(enabledKeywords);
+    // Scrape just this tick's keyword.
+    const scrapeResults = await scrapeEgp([selected]);
 
     // Deduplicate by egpId across all keyword results
     const seen = new Set<string>();
@@ -305,7 +318,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       ok: true,
       checked_at: currentTime,
-      matched: true,
+      keyword: selected.keyword,
       tenders_found: filteredTenders.length,
       tenders_new: notifyList.length,
       tenders_updated: updatedNotify.length,
