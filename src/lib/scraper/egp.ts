@@ -126,6 +126,11 @@ export function deriveLane(flowName: string, methodId: string): Lane | null {
   const winner = f.includes("ผู้ชนะ");
   const invite = f.includes("ร่าง") || f.includes("เชิญชวน");
   if (!winner && !invite) return null;
+  // เฉพาะเจาะจง (direct purchase, methodId 19) with a winner already announced
+  // is a closed deal — no chance to sell into it, so skip. (Competitive
+  // non-e-bidding methods stay as Type C: their winner is a contractor we can
+  // still approach, like Type B.)
+  if (methodId === "19" && winner) return null;
   if (methodId !== "16") return "type_c";
   return winner ? "type_b" : "type_a";
 }
