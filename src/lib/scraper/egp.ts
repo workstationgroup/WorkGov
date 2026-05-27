@@ -31,6 +31,16 @@ export function parseBidPrice(raw?: string | null): string | null {
   return digits;
 }
 
+// Safely turn an external/AI date string into a Date, or null. The AI often
+// returns "ไม่ระบุ" (or other non-dates) for contractDate — `new Date()` of
+// that is an Invalid Date which throws "Invalid time value" on DB insert and
+// aborts the whole scrape tick. Always route date strings through this.
+export function safeDate(value?: unknown): Date | null {
+  if (!value) return null;
+  const d = new Date(value as string);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // Classify an e-GP document by its Thai name. Order matters — winner and
 // bid-summary checks come before the generic "ประกวดราคา" TOR match so a
 // winner announcement isn't mislabeled as a bidding document.

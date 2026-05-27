@@ -9,7 +9,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { tenderDocuments } from "@/lib/db/schema";
-import type { TenderDocument } from "@/lib/scraper/egp";
+import { safeDate, type TenderDocument } from "@/lib/scraper/egp";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -27,7 +27,7 @@ export async function insertTenderDocuments(
       tenderId,
       category: doc.category,
       name: doc.name,
-      webDate: doc.date ? new Date(doc.date) : null,
+      webDate: safeDate(doc.date),
       url: doc.url ?? null,
       fetchedAt: new Date(),
     }))
@@ -90,7 +90,7 @@ export async function reconcileTenderDocuments(
       tenderId,
       category: doc.category,
       name: doc.name,
-      webDate: doc.date ? new Date(doc.date) : null,
+      webDate: safeDate(doc.date),
       url: doc.url ?? null,
       fetchedAt: now,
     }))

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { keywords, tenders, winnerCompanies, scrapeLog } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { scrapeEgp, parseBidPrice, type RawTender } from "@/lib/scraper/egp";
+import { scrapeEgp, parseBidPrice, safeDate, type RawTender } from "@/lib/scraper/egp";
 import {
   insertTenderDocuments,
   reconcileTenderDocuments,
@@ -171,15 +171,9 @@ export async function POST() {
             parseBidPrice(tender.winnerPrice) ??
             parseBidPrice(classification.winner?.winnerPrice),
           matchedKeyword: tender.matchedKeyword,
-          announceDate: tender.announceDate
-            ? new Date(tender.announceDate)
-            : null,
-          submissionDate: tender.submissionDate
-            ? new Date(tender.submissionDate)
-            : null,
-          contractDate: classification.winner?.contractDate
-            ? new Date(classification.winner.contractDate)
-            : null,
+          announceDate: safeDate(tender.announceDate),
+          submissionDate: safeDate(tender.submissionDate),
+          contractDate: safeDate(classification.winner?.contractDate),
           detailUrl: tender.detailUrl || null,
           requiredDocuments: tender.documents || null,
           rawData: tender.rawData || null,
