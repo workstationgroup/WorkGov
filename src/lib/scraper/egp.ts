@@ -129,7 +129,7 @@ export function isWinnerStage(flowName: string): boolean {
 // Map an e-GP announcement to our lane based on procurement method + stage.
 // Returns null for stages we don't track (contract management, cancelled…).
 //   e-bidding (methodId 16): invitation/draft = Type A (we bid),
-//                            winner = Type B (find construction winner to sell to)
+//                            winner = Type B (any project announcing a winner)
 //   any other method:        Type C (non-e-bidding bidding — any tracked stage)
 // Construction/building work — the winner becomes a furniture buyer afterward.
 // Thai tender names are formulaic: "...จ้างก่อสร้าง..." / "ปรับปรุงอาคาร" vs
@@ -146,9 +146,9 @@ export function isConstruction(projectName: string): boolean {
 //   - Construction is the opposite: we can't build, so it only matters once a
 //     winner exists (that contractor will need furniture → we sell to them).
 //   A/B/C:
-//     Type A = goods + e-bidding + invitation     (we bid)
-//     Type B = construction + e-bidding + winner   (sell to the winner)
-//     Type C = same logic but a non-e-bidding method
+//     Type A = goods + e-bidding + invitation      (we bid)
+//     Type B = e-bidding + winner                  (sell to the winner)
+//     Type C = construction + non-e-bidding winner, or goods invitation
 export function deriveLane(
   flowName: string,
   methodId: string,
@@ -163,10 +163,13 @@ export function deriveLane(
   const ebid = methodId === "16";
 
   if (winner) {
-    // Only construction winners are leads. Goods already awarded = too late.
-    // เฉพาะเจาะจง (direct) is always a closed deal at winner stage.
+    // Type B = any e-bidding project that just announced a winner. We only
+    // need the winner announcement itself — project nature doesn't matter.
+    if (ebid) return "type_b";
+    // Type C (non-e-bidding) winners are leads only for construction work;
+    // เฉพาะเจาะจง (direct, methodId 19) is always a closed deal at this stage.
     if (!construction || methodId === "19") return null;
-    return ebid ? "type_b" : "type_c";
+    return "type_c";
   }
   // Invitation: construction isn't biddable by us (wait for its winner);
   // goods we can bid → A (e-bidding) or C (other competitive method).
