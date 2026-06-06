@@ -607,6 +607,12 @@ async function searchTenders(
         }
       }
 
+      // A winner-stage lead only matters once a winner is actually announced.
+      // e-GP lists some projects at the winner flow stage before the result is
+      // published, so getProcureResult returns no winning bidder — that would
+      // otherwise create a Type B entry with an empty winner. Skip those.
+      if (winnerStage && !winnerName) continue;
+
       tenders.push({
         egpId: projectId,
         projectName: String(item.projectName || ""),
