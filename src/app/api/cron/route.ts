@@ -8,7 +8,7 @@ import {
   scrapeLog,
   settings,
 } from "@/lib/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, inArray } from "drizzle-orm";
 import { scrapeEgp, parseBidPrice, safeDate, type RawTender } from "@/lib/scraper/egp";
 import {
   insertTenderDocuments,
@@ -26,6 +26,13 @@ function getCurrentTimeUTC7(): string {
   const now = new Date();
   const utc7 = new Date(now.getTime() + 7 * 60 * 60 * 1000);
   return utc7.toISOString().slice(11, 16); // "HH:MM"
+}
+
+// e-GP may have no published winner yet; the AI fills unknown fields with the
+// literal "ไม่ระบุ". Never persist that as a winner — keep only a real name.
+function cleanWinnerName(name: string | null | undefined): string | null {
+  const n = (name ?? "").trim();
+  return n && n !== "ไม่ระบุ" ? n : null;
 }
 
 // Vercel Cron heartbeat — runs every 15 minutes.
@@ -108,6 +115,20 @@ export async function GET(request: Request) {
     // Scrape just this tick's keyword.
     const scrapeResults = await scrapeEgp([selected]);
 
+    // Observability: winner-stage projects seen vs. winners actually resolved.
+    // A large gap means getProcureResult isn't extracting winners.
+    const winnerStageSeen = scrapeResults.reduce(
+      (n, r) => n + (r.winnerStageSeen ?? 0),
+      0
+    );
+    const winnerResolved = scrapeResults.reduce(
+      (n, r) => n + (r.winnerResolved ?? 0),
+      0
+    );
+    console.log(
+      `[Cron] keyword="${selected.keyword}" winner-stage seen=${winnerStageSeen} resolved=${winnerResolved}`
+    );
+
     // Deduplicate by egpId across all keyword results
     const seen = new Set<string>();
     const uniqueTenders: Array<RawTender & { matchedKeyword: string }> = [];
@@ -176,6 +197,7 @@ export async function GET(request: Request) {
 
     // Classify and insert new tenders
     const notifyList: TenderNotification[] = [];
+    const notifiedTenderIds: number[] = [];
 
     for (const tender of newTenders) {
       // Lane is derived from the e-GP announcement stage during scraping.
@@ -220,8 +242,8 @@ export async function GET(request: Request) {
           aiSummary: classification.summary,
           aiClassificationReason: classification.reason,
           keyPoints: keyPoints ?? null,
-          // Prefer structured getProcureResult data over AI extraction.
-          winnerName: tender.winnerName ?? classification.winner?.winnerName ?? null,
+          // Structured getProcureResult winner only — never the AI's "ไม่ระบุ".
+          winnerName: cleanWinnerName(tender.winnerName),
           winnerTin: tender.winnerTin ?? null,
           bidders: tender.bidders ?? null,
           winnerPrice:
@@ -276,6 +298,7 @@ export async function GET(request: Request) {
           : null,
         detailUrl: `https://workgov.workstationoffice.com/t/${inserted.egpId}`,
       });
+      notifiedTenderIds.push(inserted.id);
     }
 
     // Send LINE notification for new relevant tenders
@@ -283,13 +306,13 @@ export async function GET(request: Request) {
     if (notifyList.length > 0) {
       lineResult = await sendLineNotification(notifyList);
 
-      // Mark tenders as notified
-      const now = new Date();
-      for (const tender of notifyList) {
+      // Mark exactly the rows we just inserted as notified — keyed by id, not
+      // projectName (names aren't unique and could mark the wrong rows).
+      if (notifiedTenderIds.length > 0) {
         await db
           .update(tenders)
-          .set({ notifiedAt: now })
-          .where(eq(tenders.projectName, tender.projectName));
+          .set({ notifiedAt: new Date() })
+          .where(inArray(tenders.id, notifiedTenderIds));
       }
     }
 
@@ -317,6 +340,8 @@ export async function GET(request: Request) {
       tenders_new: notifyList.length,
       tenders_updated: updatedNotify.length,
       line_sent: lineResult?.sent ?? false,
+      winner_stage_seen: winnerStageSeen,
+      winner_resolved: winnerResolved,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
