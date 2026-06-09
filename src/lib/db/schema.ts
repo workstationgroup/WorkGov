@@ -169,6 +169,18 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// LINE notification targets — the bot pushes to every enabled group here.
+// Auto-registered by the LINE webhook when the bot receives a message in a
+// group (name is pulled from LINE); an admin names/toggles each in the UI.
+export const lineTargets = pgTable("line_targets", {
+  id: serial("id").primaryKey(),
+  lineId: text("line_id").notNull().unique(), // LINE groupId / roomId / userId
+  name: varchar("name", { length: 200 }).notNull().default(""),
+  kind: varchar("kind", { length: 16 }).notNull().default("group"), // group | room | user
+  enabled: boolean("enabled").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const settingsChangelog = pgTable("settings_changelog", {
   id: serial("id").primaryKey(),
   userId: text("user_id").references(() => users.id),
