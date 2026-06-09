@@ -22,6 +22,77 @@ export async function isLineEnabled(): Promise<boolean> {
   return !row || row.value !== "false";
 }
 
+// Resolve the list of LINE ids to push to. Prefers the enabled rows in the
+// line_targets table (managed in the admin UI); if none are enabled yet, falls
+// back to the legacy LINE_GROUP_ID env var so existing setups keep working.
+async function getEnabledTargets(): Promise<string[]> {
+  const { getDb } = await import("@/lib/db");
+  const { lineTargets } = await import("@/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(lineTargets)
+    .where(eq(lineTargets.enabled, true));
+  if (rows.length > 0) return rows.map((r) => r.lineId);
+  const envGroup = process.env.LINE_GROUP_ID;
+  return envGroup ? [envGroup] : [];
+}
+
+// Low-level push to a single LINE destination. Returns true on success.
+async function pushToLine(
+  token: string,
+  to: string,
+  messages: Record<string, unknown>[]
+): Promise<boolean> {
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ to, messages }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("[LINE] Push failed:", res.status, to, err);
+    return false;
+  }
+  return true;
+}
+
+// Fetch a group's display name via the LINE bot API (best-effort).
+export async function fetchLineGroupName(groupId: string): Promise<string> {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return "";
+  try {
+    const res = await fetch(
+      `https://api.line.me/v2/bot/group/${groupId}/summary`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return "";
+    const j = await res.json();
+    return typeof j.groupName === "string" ? j.groupName : "";
+  } catch {
+    return "";
+  }
+}
+
+// Send a one-off test message to a single LINE destination (admin UI button).
+export async function sendLineTestMessage(
+  lineId: string
+): Promise<{ sent: boolean; reason?: string }> {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return { sent: false, reason: "missing_credentials" };
+  const ok = await pushToLine(token, lineId, [
+    {
+      type: "text",
+      text: "✅ WorkGov: ทดสอบการแจ้งเตือน — กลุ่มนี้เชื่อมต่อกับ WorkGov เรียบร้อยแล้ว",
+    },
+  ]);
+  return ok ? { sent: true } : { sent: false, reason: "api_error" };
+}
+
 function buildTenderBubble(t: TenderNotification) {
   const typeLabel =
     t.tenderType === "type_a" ? "A" : t.tenderType === "type_b" ? "B" : "C";
@@ -159,15 +230,19 @@ export async function sendLineNotification(
   }
 
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  const groupId = process.env.LINE_GROUP_ID;
-
-  if (!token || !groupId) {
-    console.log("[LINE] Missing credentials, skipping notification");
+  if (!token) {
+    console.log("[LINE] Missing channel token, skipping notification");
     return { sent: false, reason: "missing_credentials" };
   }
 
   if (tenders.length === 0) {
     return { sent: false, reason: "no_tenders" };
+  }
+
+  const targets = await getEnabledTargets();
+  if (targets.length === 0) {
+    console.log("[LINE] No enabled groups configured");
+    return { sent: false, reason: "no_targets" };
   }
 
   const typeACount = tenders.filter((t) => t.tenderType === "type_a").length;
@@ -217,23 +292,21 @@ export async function sendLineNotification(
     });
   }
 
-  const res = await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      to: groupId,
-      messages,
-    }),
-  });
+  // Push to every enabled group. LINE has no multicast for groups, so each
+  // destination is an individual push; one failure doesn't block the others.
+  const results = await Promise.all(
+    targets.map((to) => pushToLine(token, to, messages))
+  );
+  const delivered = results.filter(Boolean).length;
 
-  if (!res.ok) {
-    const err = await res.text();
-    console.error("[LINE] Push failed:", res.status, err);
-    return { sent: false, reason: "api_error", error: err };
+  if (delivered === 0) {
+    return { sent: false, reason: "api_error", targets: targets.length };
   }
 
-  return { sent: true, count: tenders.length };
+  return {
+    sent: true,
+    count: tenders.length,
+    targets: targets.length,
+    delivered,
+  };
 }

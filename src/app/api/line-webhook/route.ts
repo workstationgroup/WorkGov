@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { settings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { lineTargets } from "@/lib/db/schema";
+import { fetchLineGroupName } from "@/lib/line/notify";
 
 async function verifyLineSignature(
   body: string,
@@ -39,22 +39,27 @@ export async function POST(request: Request) {
   const body = JSON.parse(rawBody);
   const events = body.events || [];
 
+  const db = getDb();
+  const seen = new Set<string>();
+
   for (const event of events) {
-    if (event.source?.groupId) {
-      const groupId = event.source.groupId;
-      console.log("[LINE Webhook] Group ID captured");
+    const src = event.source || {};
+    const lineId: string | undefined = src.groupId || src.roomId;
+    if (!lineId || seen.has(lineId)) continue;
+    seen.add(lineId);
 
-      const db = getDb();
-      await db
-        .insert(settings)
-        .values({ key: "captured_line_group_id", value: groupId })
-        .onConflictDoUpdate({
-          target: settings.key,
-          set: { value: groupId },
-        });
+    const kind = src.groupId ? "group" : "room";
+    const name = src.groupId ? await fetchLineGroupName(src.groupId) : "";
 
-      return NextResponse.json({ ok: true });
-    }
+    // Register the group so an admin can name/enable it in the UI. New groups
+    // start disabled (enabled defaults to false); onConflictDoNothing keeps an
+    // admin's existing name/toggle untouched on repeat events.
+    await db
+      .insert(lineTargets)
+      .values({ lineId, kind, name })
+      .onConflictDoNothing({ target: lineTargets.lineId });
+
+    console.log(`[LINE Webhook] Registered ${kind} target`);
   }
 
   return NextResponse.json({ ok: true });
