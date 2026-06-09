@@ -178,6 +178,10 @@ export interface ScrapeResult {
   tenders: RawTender[];
   keyword: string;
   error?: string;
+  // Observability: how many winner-stage projects we saw vs. how many actually
+  // yielded a winner. A large gap means getProcureResult isn't resolving winners.
+  winnerStageSeen?: number;
+  winnerResolved?: number;
 }
 
 const EGP_BASE = "https://process5.gprocurement.go.th";
@@ -439,6 +443,18 @@ async function getProcureResult(
       }
     }
     const winner = bidders.find((b) => b.isWinner);
+    if (!winner) {
+      // TEMP diagnostics: these projects are at the winner-announcement stage
+      // per e-GP, yet no winning bidder parsed. Log the raw response shape so we
+      // can confirm the field paths (procureResultList / resultFlag /
+      // priceAgree). Remove once the extractor is verified against real data.
+      console.warn(
+        `[getProcureResult] no winner projectId=${projectId} bidders=${bidders.length} ` +
+          `topKeys=${Object.keys(json ?? {}).join(",")} ` +
+          `dataKeys=${Object.keys((json?.data as Record<string, unknown>) ?? {}).join(",")} ` +
+          `sample=${JSON.stringify(json).slice(0, 1000)}`
+      );
+    }
     return { winner, bidders };
   } catch {
     return null;
@@ -501,7 +517,11 @@ async function getMerchantData(
 async function searchTenders(
   token: string,
   keyword: string
-): Promise<RawTender[]> {
+): Promise<{
+  tenders: RawTender[];
+  winnerStageSeen: number;
+  winnerResolved: number;
+}> {
   try {
     // Two page-1 searches per keyword: methodId=16 surfaces e-bidding (A/B),
     // which is rare in an unfiltered list, and an unfiltered search captures
@@ -542,6 +562,8 @@ async function searchTenders(
     const items = [...byId.values()];
 
     const tenders: RawTender[] = [];
+    let winnerStageSeen = 0;
+    let winnerResolved = 0;
 
     for (const item of items) {
       const projectId = String(item.projectId || "");
@@ -575,6 +597,7 @@ async function searchTenders(
       let bidders: Bidder[] | undefined;
       let company: WinnerCompanyData | undefined;
       if (winnerStage) {
+        winnerStageSeen++;
         const result = await getProcureResult(token, projectId);
         if (result) {
           bidders = result.bidders;
@@ -612,6 +635,7 @@ async function searchTenders(
       // published, so getProcureResult returns no winning bidder — that would
       // otherwise create a Type B entry with an empty winner. Skip those.
       if (winnerStage && !winnerName) continue;
+      if (winnerStage) winnerResolved++;
 
       tenders.push({
         egpId: projectId,
@@ -645,10 +669,10 @@ async function searchTenders(
       });
     }
 
-    return tenders;
+    return { tenders, winnerStageSeen, winnerResolved };
   } catch (err) {
     console.error(`[Scraper] Search error for "${keyword}":`, err);
-    return [];
+    return { tenders: [], winnerStageSeen: 0, winnerResolved: 0 };
   }
 }
 
@@ -672,8 +696,16 @@ export async function scrapeEgp(
   // egpFetch throttles + retries (429 backoff) across every request globally,
   // so keywords can run back-to-back without manual inter-keyword delays.
   for (const kw of enabledKeywords) {
-    const tenders = await searchTenders(token, kw.keyword);
-    results.push({ tenders, keyword: kw.keyword });
+    const { tenders, winnerStageSeen, winnerResolved } = await searchTenders(
+      token,
+      kw.keyword
+    );
+    results.push({
+      tenders,
+      keyword: kw.keyword,
+      winnerStageSeen,
+      winnerResolved,
+    });
   }
 
   return results;
